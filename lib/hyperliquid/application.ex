@@ -5,11 +5,13 @@ defmodule Hyperliquid.Application do
 
   use Application
 
+  @cache :hyperliquid
+
   @impl true
   def start(_type, _args) do
     children = [
-      # Starts a worker by calling: Hyperliquid.Worker.start_link(arg)
-      # {Hyperliquid.Worker, arg}
+      {Phoenix.PubSub, name: Hyperliquid.PubSub},
+      {Cachex, name: @cache}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

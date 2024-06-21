@@ -1,5 +1,5 @@
 defmodule Hyperliquid.Api.Subscription do
-  alias Hyperliquid.{State, Utils}
+  alias Hyperliquid.Utils
 
   @type subscription :: %{
     type: String.t(),
@@ -103,7 +103,7 @@ defmodule Hyperliquid.Api.Subscription do
     end
   end
 
-  def to_key(%{"type" => _} = sub), do: Utils.atomize_map(sub) |> to_key()
+  def to_key(%{"type" => _} = sub), do: Utils.atomize_keys(sub) |> to_key()
 
   def to_key(%{type: type} = sub) do
     cond do

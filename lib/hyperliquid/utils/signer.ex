@@ -137,6 +137,7 @@ defmodule Hyperliquid.Signer do
   end
 
   def sign_agent(action, mainnet?, secret) do
+    # testnet signaturechainid = to_hex(43114)
     sign_user_signed_action(
       action,
       [

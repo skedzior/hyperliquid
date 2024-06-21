@@ -1,5 +1,5 @@
 defmodule Hyperliquid.Utils do
-  alias Hyperliquid.Api.Info
+  import Hyperliquid.Atomizer
 
   @pubsub Hyperliquid.PubSub
 
@@ -33,18 +33,16 @@ defmodule Hyperliquid.Utils do
   #   }
   # end
 
-  def asset_map do
-    Info.meta()
-    |> elem(1)
-    |> Map.get("universe")
-    |> Enum.with_index(&{&1["name"], &2})
-    |> Enum.into(%{})
-  end
+  def numbers_to_strings(struct, fields) do
+    Enum.reduce(fields, struct, fn field, acc ->
+      value = Map.get(acc, field)
 
-  def atomize_map(map) do
-    map
-    |> Jason.encode!()
-    |> Jason.decode!(keys: :atoms)
+      if is_integer(value) or is_float(value) do
+        Map.put(acc, field, Kernel.to_string(value))
+      else
+        acc
+      end
+    end)
   end
 
   def make_cloid do

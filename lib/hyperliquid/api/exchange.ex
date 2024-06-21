@@ -1,20 +1,21 @@
 defmodule Hyperliquid.Api.Exchange do
   use Hyperliquid.Api, context: "exchange"
 
-  def place_order(order) do
-    post_action(%{type: "order", grouping: "na", orders: [order]})
+  def place_order(order, grouping \\ "na")
+  def place_order([_|_] = orders, grouping) do
+    post_action(%{type: "order", grouping: grouping, orders: orders})
   end
 
-  def place_order([_|_] = orders) do
-    post_action(%{type: "order", grouping: "na", orders: orders})
-  end
-
-  def cancel_order(asset, oid) do
-    post_action(%{type: "cancel", cancels: [%{a: asset, o: oid}]})
+  def place_order(order, grouping) do
+    post_action(%{type: "order", grouping: grouping, orders: [order]})
   end
 
   def cancel_order([_|_] = cancels) do
     post_action(%{type: "cancel", cancels: cancels})
+  end
+
+  def cancel_order(asset, oid) do
+    post_action(%{type: "cancel", cancels: [%{a: asset, o: oid}]})
   end
 
   def cancel_order_by_cloid(asset, cloid) do

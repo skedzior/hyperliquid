@@ -19,6 +19,10 @@ defmodule Hyperliquid.Api.Info do
     post(%{type: "ethFaucet", user: user_address})
   end
 
+  def user_rate_limit(user_address) do
+    post(%{type: "userRateLimit", user: user_address})
+  end
+
   def meta do
     # response = Meta
     post(%{type: "meta"})
@@ -108,15 +112,16 @@ defmodule Hyperliquid.Api.Info do
     post(%{type: "userFees", user: user_address})
   end
 
-  def order_by_oid(user_address, oid) do
+  def order_by_id(user_address, id) do
     # response = TODO
-    post(%{type: "orderStatus", user: user_address, oid: oid})
+    # id = oid | cloid
+    post(%{type: "orderStatus", user: user_address, oid: id})
   end
 
-  def order_by_cloid(user_address, cloid) do
-    # response = TODO
-    post(%{type: "orderStatus", user: user_address, oid: cloid})
-  end
+  # def order_by_cloid(user_address, cloid) do
+  #   # response = TODO
+  #   post(%{type: "orderStatus", user: user_address, oid: cloid})
+  # end
 
   def referral_state(user_address) do
     # response = ReferralState
@@ -128,11 +133,23 @@ defmodule Hyperliquid.Api.Info do
     post(%{type: "subAccounts", user: user_address})
   end
 
+  def agents(user_address) do
+    post(%{type: "extraAgents", user: user_address})
+  end
+
   def portfolio(user_address) do
     post(%{type: "portfolio", user: user_address})
   end
 
   def predicted_fundings do
     post(%{type: "predictedFundings"})
+  end
+
+  def is_vip(user_address) do
+    post(%{type: "isVip", user: user_address})
+  end
+
+  def vaults(user_address) do
+    post(%{type: "vaults", user: user_address})
   end
 end

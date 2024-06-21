@@ -1,7 +1,8 @@
 defmodule Hyperliquid.Cache do
-  @cache :hyperliquid
-
+  alias __MODULE__
   alias Hyperliquid.Api.Info
+
+  @cache :hyperliquid
 
   @doc """
   Initializes the cache with meta and spot_meta information.
@@ -10,7 +11,7 @@ defmodule Hyperliquid.Cache do
     meta = Info.meta() |> elem(1)
     spot_meta = Info.spot_meta() |> elem(1)
 
-    all_mids = Info.all_mids() |> elem(1)
+    all_mids = Info.all_mids() |> elem(1) |> Hyperliquid.Atomizer.atomize_keys()
     tokens = Map.get(spot_meta, "tokens")
 
     asset_map = Map.merge(
@@ -123,4 +124,20 @@ defmodule Hyperliquid.Cache do
   def clear do
     Cachex.clear!(@cache)
   end
+
+  ##### UTILS ######
+  def asset_from_coin(coin), do: Cache.get(:asset_map)[coin]
+  def decimals_from_coin(coin), do: Cache.get(:decimal_map)[coin]
+
+  def get_token_by_name(name) do
+    Cache.get(:tokens)
+    |> Enum.find(& &1["name"] == name)
+  end
+
+  def get_token_by_address(address) do
+    Cache.get(:tokens)
+    |> Enum.find(& &1["tokenId"] == address)
+  end
+
+  def get_token_key(token), do: "#{Map.get(token, "name")}:#{Map.get(token, "tokenId")}"
 end

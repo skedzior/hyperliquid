@@ -10,10 +10,10 @@ defmodule Hyperliquid.Api do
       @api_base Application.get_env(:hyperliquid, :http_url)
       @is_mainnet Application.get_env(:hyperliquid, :is_mainnet)
       @secret Application.get_env(:hyperliquid, :private_key)
+
       @headers [{"Content-Type", "application/json"}]
 
       def mainnet?, do: @is_mainnet
-      #def api_base, do: @api_base
       def endpoint, do: "#{@api_base}/#{@context}"
 
       def post_action(action), do: post_action(action, get_timestamp())

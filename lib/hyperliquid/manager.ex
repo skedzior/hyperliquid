@@ -22,56 +22,35 @@ defmodule Hyperliquid.Manager do
     {:ok, %{}}
   end
 
-  def subscribed?(sub, registry), do: Enum.member?(get_active_subs(registry) , sub)
+  # def subscribed?(sub, registry), do: Enum.member?(get_active_subs(registry) , sub)
 
-  def get_subbed_users do
-    @users
-    |> Registry.select([{{:"$1", :"$2", :"$3"}, [], [:"$1"]}])
-    |> Enum.map(&elem(&1, 0))
-    |> Enum.uniq()
-  end
+  def get_subbed_users, do: Registry.select(@users, [{{:"$1", :_, :_}, [], [:"$1"]}])
 
-  def get_active_subs(registry) do
-    registry
-    |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}])
-  end
-
-  def get_unique_pids do
+  def get_active_subs, do:
     @workers
-    |> Registry.select([{{:_, :"$1", :_}, [], [:"$1"]}])
-    |> Enum.uniq()
-  end
+    |> Registry.select([{{:_, :_, :"$3"}, [], [:"$3"]}])
+    |> Enum.flat_map(& &1.subs)
+    |> Enum.filter(&!Map.has_key?(&1, :user))
 
-  def get_workers do
-    DynamicSupervisor.which_children(Supervisor)
+  def get_active_non_user_subs, do: get_active_subs() |> Enum.filter(&!Map.has_key?(&1, :user))
+
+  def get_worker_pids, do: Registry.select(@workers, [{{:_, :"$2", :_}, [], [:"$2"]}])
+
+  def get_worker_ids, do: get_worker_pids() |> Enum.flat_map(&Registry.keys(@workers, &1))
+
+  def get_workers, do:
+    Supervisor
+    |> DynamicSupervisor.which_children()
     |> Enum.map(&elem(&1, 1))
+
+  def maybe_start_stream(sub) when is_map(sub) do
+    subbed? = get_active_non_user_subs() |> Enum.member?(sub)
+
+    cond do
+      subbed? -> IO.inspect("already subbed to this topic")
+      true    -> Supervisor.start_stream([sub])
+    end
   end
-
-  def get_worker_count do
-    get_workers() |> Enum.count()
-  end
-
-  # def find_userless_pids do
-  #   registry = get_unique_pids() |> MapSet.new()
-
-  #   get_workers()
-  #   |> MapSet.new()
-  #   |> MapSet.difference(registry)
-  #   |> MapSet.to_list()
-  # end
-
-  # TODO: choose pid at random from workers instead of Enum.at(0)
-  # def maybe_start_stream(sub) when is_map(sub) do
-  #   key = Subscription.to_key(sub)
-  #   subbed = get_active_subs() |> Enum.member?(key)
-  #   pid = get_workers() |> Enum.at(0)
-
-  #   cond do
-  #     subbed -> IO.inspect("already subbed to this topic")
-  #     !is_nil(pid) -> Stream.subscribe(pid, sub)
-  #     is_nil(pid) -> Supervisor.start_stream([sub])
-  #   end
-  # end
 
   # def maybe_start_stream(address) do
   #   subbed = get_subbed_users() |> Enum.member?(address)
@@ -87,31 +66,49 @@ defmodule Hyperliquid.Manager do
   #   end
   # end
 
-  # defp async_auto_start_user(pid, address) do
-  #   task = Task.async(fn -> auto_start_user(pid, address) end)
-  #   Task.await(task)
-  # end
-
   # defp async_auto_start_user(address) do
   #   task = Task.async(fn -> auto_start_user(address) end)
   #   Task.await(task)
   # end
 
-  def auto_start_user(address) do
-    address
-    |> Subscription.make_user_subs()
-    |> Supervisor.start_stream()
+  # def auto_start_user(address) do
+  #   address
+  #   |> Subscription.make_user_subs()
+  #   |> Supervisor.start_stream()
+  # end
+
+  def auto_start_user(address, coin \\ nil) do
+    address = String.downcase(address)
+
+    get_subbed_users()
+    |> Enum.map(&String.downcase(&1))
+    |> Enum.member?(address)
+    |> case do
+      true -> IO.inspect("already subbed to user")
+      _    -> Subscription.make_user_subs(address, coin) |> Supervisor.start_stream()
+    end
   end
 
-  def auto_start_user(pid, address) do
-    address
-    |> Subscription.make_user_subs()
-    |> then(&Stream.subscribe(pid, &1))
+  def unsubscribe_all(pid) when is_pid(pid) do
+    id = Registry.keys(@workers, pid) |> Enum.at(0)
+
+    case id do
+      nil -> IO.inspect("not a worker pid")
+      _   -> Registry.values(@workers, id, pid) |> Enum.at(0)
+    end
+    |> Map.get(:subs)
+    |> Enum.map(&Stream.unsubscribe(pid, &1))
+  end
+
+  def unsubscribe_all(id) when is_binary(id) do
+    [{pid, %{subs: subs}}] = Registry.lookup(@workers, id)
+
+    Enum.map(subs, &Stream.unsubscribe(pid, &1))
   end
 
   # def unsubscribe_all do
   #   @registry
-  #   |> Registry.select([{{:"$1", :"$2", :"$3", }, [], [:"$2"]}])
+  #   |> Registry.select([{{:"$1", :"$2", :"$3"}, [], [:"$2"]}])
   #   |> Enum.uniq()
   #   |> Enum.flat_map(&Registry.keys(@registry, &1))
   #   |> Enum.flat_map(&Registry.lookup(@registry, &1))

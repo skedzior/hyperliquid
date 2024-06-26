@@ -16,19 +16,20 @@ defmodule Hyperliquid.Streamer.Stream do
   @ping Jason.encode!(%{"method" => "ping"})
 
   def start_link(subs \\ []) do
-    id = make_name()
+    state = %{
+      id: make_cloid(),
+      user: nil,
+      subs: subs,
+      req_count: 0,
+      active_subs: 0,
+      last_response: System.system_time(:second)
+    }
+
     WebSockex.start_link(
       @ws_url,
       __MODULE__,
-      %{
-        id: id,
-        user: nil,
-        subs: subs,
-        req_count: 0,
-        active_subs: 0,
-        last_response: System.system_time(:second)
-      }, # debug: [:trace],
-      name: id
+      state, # debug: [:trace],
+      name: via(state)
     )
   end
 
@@ -44,7 +45,7 @@ defmodule Hyperliquid.Streamer.Stream do
     WebSockex.send_frame(pid, {:text,
       Jason.encode!(%{
         method: "post",
-        id: State.increment(type, payload.type),
+        id: Cache.increment(),
         request: %{
           type: type,
           payload: payload
@@ -84,12 +85,6 @@ defmodule Hyperliquid.Streamer.Stream do
     end
   end
 
-  @impl true
-  def handle_info(:get_state, state) do
-    IO.inspect(state)
-    {:ok, state}
-  end
-
   def handle_cast({:add_sub, sub}, %{user: user, subs: subs} = state) do
     message = Subscription.to_encoded_message(sub)
     subject = Subscription.get_subject(sub)
@@ -116,17 +111,17 @@ defmodule Hyperliquid.Streamer.Stream do
     |> then(&{:reply, {:text, &1}, state})
   end
 
-  def handle_cast(:drop_user, %{subs: subs} = state) do
-    Enum.filter(subs, & Map.has_key?(&1, :user))
-    |> IO.inspect(label: "drop user subs")
-    |> Enum.map(&WebSockex.cast(self(), {:remove_sub, &1}))
+  # def handle_cast(:drop_user, %{subs: subs} = state) do
+  #   Enum.filter(subs, & Map.has_key?(&1, :user))
+  #   |> IO.inspect(label: "drop user subs")
+  #   |> Enum.map(&WebSockex.cast(self(), {:remove_sub, &1}))
 
-    {:ok, state}
-  end
+  #   {:ok, state}
+  # end
 
   def handle_frame({:text, msg}, %{req_count: req_count} = state) do
     msg = Jason.decode!(msg, keys: :atoms) #|> IO.inspect(label: "msg decoded")
-    event = process_event(msg) #|> IO.inspect(label: "processed event")
+    event = process_event(msg) |> IO.inspect(label: "processed event")
 
     new_state =
       case event.channel do
@@ -142,7 +137,6 @@ defmodule Hyperliquid.Streamer.Stream do
     if event.channel == "allMids" do
       Cache.put(:all_mids, event.data.mids)
     end
-
 
     # if event.channel == "candle" do
     #   channel = "#{event.data.s}:candle:#{event.data.i}"
@@ -160,6 +154,11 @@ defmodule Hyperliquid.Streamer.Stream do
     # broadcast("event_stream", event)
 
     {:ok, new_state}
+  end
+
+  def handle_frame(:close, state) do
+    IO.inspect(state, label: "closing")
+    {:close, state}
   end
 
   defp update_active_subs(%{data: %{method: method, subscription: sub}}, %{subs: subs} = state) do
@@ -182,40 +181,21 @@ defmodule Hyperliquid.Streamer.Stream do
           nil
       end
 
-    #Registry.update_value(@workers, state.id, fn _ -> new_subs end)
-
-    IO.inspect({user, Enum.count(new_subs)}, label: "update_actibve_subs")
-    %{state |
+    new_state = %{state |
       user: user,
       subs: new_subs,
       active_subs: Enum.count(new_subs)
     }
+
+    Registry.update_value(@workers, state.id, fn _ -> new_state end)
+
+    new_state
   end
 
   defp update_active_subs(event, state) do
     IO.inspect(event, label: "update_active_subs catchall")
     state
   end
-
-  # def process_event(%{data: data, channel: "candle" = ch} = payload) do
-  #   IO.inspect(payload, label: "candle")
-
-  #   # %{
-  #   #   "t" => start,
-  #   #   "T" => endt,
-  #   #   "s" => coin,
-  #   #   "i" => interval,
-  #   #   "o" => o,
-  #   #   "c" => c,
-  #   #   "h" => h,
-  #   #   "l" => l,
-  #   #   "v" => v,
-  #   #   "n" => n
-  #   # } = data
-
-  #   broadcast("#{data.s}:#{ch}:#{data.i}", data)
-  #   data
-  # end
 
   def process_event(%{channel: ch, data: %{subscription: sub, method: method} = data}) do
     IO.inspect(ch, label: "ch")
@@ -228,6 +208,15 @@ defmodule Hyperliquid.Streamer.Stream do
       key: Subscription.to_key(sub)
     }
     |> IO.inspect(label: "process_sub_event")
+  end
+
+  def process_event(%{channel: "post", data: %{id: id, response: response}} = msg) do
+    %{
+      id: id,
+      channel: "post",
+      subject: Subscription.get_subject(response.payload.type),
+      data: response
+    }
   end
 
   def process_event(%{channel: ch, data: data} = msg) do
@@ -244,12 +233,12 @@ defmodule Hyperliquid.Streamer.Stream do
     #IO.inspect(msg, label: "exp txs")
     %{
       channel: "explorerTxs",
-      subject: Subscription.get_subject("explorerTxs"),
+      subject: :txs,
       data: msg
     }
   end
 
-  def process_event([%{"height" => block} = exp_block | _] = msg) do
+  def process_event([%{height: block} = exp_block | _] = msg) do
     # fullblock = Hyperliquid.Api.Info.get_orders("0x21aa8b9f2339af03e9e9be71a76ab70cbef74157")#Explorer.block_details(block)
 
     # case fullblock do
@@ -259,15 +248,14 @@ defmodule Hyperliquid.Streamer.Stream do
 
     %{
       channel: "explorerBlock",
-      subject: Subscription.get_subject("explorerBlock"),
+      subject: :block,
       data: msg
     }
     #IO.inspect(exp_block["blockTime"], label: "#{block}")
   end
 
   def process_event(msg) do
-    #msg |>
-    #IO.inspect(label: "process_event - catchall")
+    #msg |> IO.inspect(label: "process_event - catchall")
     %{
       channel: nil,
       subject: nil,
@@ -279,10 +267,7 @@ defmodule Hyperliquid.Streamer.Stream do
     IO.inspect({close_reason, state}, label: "Websocket terminated:")
   end
 
-  defp make_name do
-    {:via, Registry, {@workers, make_cloid(), []}}
+  defp via(state) do
+    {:via, Registry, {@workers, state.id, state}}
   end
 end
-
-# {_,pid} = Hyperliquid.Stream.start_link
-# Hyperliquid.Stream.subscribe(pid, %{ type: "explorerTxs"})

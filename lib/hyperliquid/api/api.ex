@@ -21,10 +21,10 @@ defmodule Hyperliquid.Api do
       def post_action(%{type: "usdSend"} = action, nonce, nil, secret) do
         signature = Signer.sign_usd_transfer_action(action, @is_mainnet, secret)
         payload = %{
-            action: action,
-            nonce: nonce,
-            signature: signature,
-            vaultAddress: nil
+          action: action,
+          nonce: nonce,
+          signature: signature,
+          vaultAddress: nil
         }
 
         post_signed(payload)
@@ -33,10 +33,10 @@ defmodule Hyperliquid.Api do
       def post_action(%{type: "spotSend"} = action, nonce, nil, secret) do
         signature = Signer.sign_spot_transfer_action(action, @is_mainnet, secret)
         payload = %{
-            action: action,
-            nonce: nonce,
-            signature: signature,
-            vaultAddress: nil
+          action: action,
+          nonce: nonce,
+          signature: signature,
+          vaultAddress: nil
         }
 
         post_signed(payload)
@@ -45,10 +45,10 @@ defmodule Hyperliquid.Api do
       def post_action(%{type: "withdraw3"} = action, nonce, nil, secret) do
         signature = Signer.sign_withdraw_from_bridge_action(action, @is_mainnet, secret)
         payload = %{
-            action: action,
-            nonce: nonce,
-            signature: signature,
-            vaultAddress: nil
+          action: action,
+          nonce: nonce,
+          signature: signature,
+          vaultAddress: nil
         }
 
         post_signed(payload)
@@ -57,10 +57,10 @@ defmodule Hyperliquid.Api do
       def post_action(action, nonce, vault_address \\ nil, secret \\ @secret) do
         signature = Signer.sign_l1_action(action, vault_address, nonce, @is_mainnet, secret)
         payload = %{
-            action: action,
-            nonce: nonce,
-            signature: signature,
-            vaultAddress: vault_address
+          action: action,
+          nonce: nonce,
+          signature: signature,
+          vaultAddress: vault_address
         }
 
         post_signed(payload)

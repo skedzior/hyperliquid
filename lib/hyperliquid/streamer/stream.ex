@@ -121,7 +121,7 @@ defmodule Hyperliquid.Streamer.Stream do
 
   def handle_frame({:text, msg}, %{req_count: req_count} = state) do
     msg = Jason.decode!(msg, keys: :atoms) #|> IO.inspect(label: "msg decoded")
-    event = process_event(msg) |> IO.inspect(label: "processed event")
+    event = process_event(msg) #|> IO.inspect(label: "processed event")
 
     new_state =
       case event.channel do

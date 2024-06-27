@@ -27,62 +27,44 @@ defmodule Hyperliquid.Orders do
   end
 
   @spec slippage_price(String.t(), boolean(), float() | nil, float() | nil) :: float()
-  def slippage_price(coin, is_buy, slippage \\ nil, px \\ nil) do
-    slippage = slippage || @default_slippage
-
+  def slippage_price(coin, is_buy?, slippage \\ @default_slippage, px \\ nil) do
     px = px || get_midprice(coin)
-    px = if is_buy, do: px * (1 + slippage), else: px * (1 - slippage)
+    px = if is_buy?, do: px * (1 + slippage), else: px * (1 - slippage)
 
     decimals = Cache.decimals_from_coin(coin)
     Float.round(px, decimals)
     |> Float.to_string()
   end
 
-  def trigger_from_order_type(order_type) when is_binary(order_type) do
-    order_type
+  def trigger_from_order_type(type) when is_binary(type) do
+    type
     |> String.downcase()
     |> case do
       "gtc" -> %{limit: %{tif: "Gtc"}}
       "ioc" -> %{limit: %{tif: "Ioc"}}
       "alo" -> %{limit: %{tif: "Alo"}}
-      _     -> %{limit: %{tif: order_type}}
+      _     -> %{limit: %{tif: type}}
     end
   end
 
-  def trigger_from_order_type(order_type) when is_map(order_type) do
-    %{trigger: order_type}
-  end
+  def trigger_from_order_type(type) when is_map(type), do: %{trigger: type}
 
-  def market_buy(coin, sz, px \\ nil, slippage \\ @default_slippage) do
-    px = slippage_price(coin, true, slippage, px)
+  def market_buy(coin, sz, vault_address \\ nil), do:
+    market_order(coin, sz, true, vault_address, nil, @default_slippage)
+
+  def market_sell(coin, sz, vault_address \\ nil), do:
+    market_order(coin, sz, false, vault_address, nil, @default_slippage)
+
+  def market_order(coin, sz, is_buy?, vault_address \\ nil, px \\ nil, slippage \\ @default_slippage) do
+    px = slippage_price(coin, is_buy?, slippage, px)
     trigger = trigger_from_order_type("ioc")
     asset = Cache.asset_from_coin(coin)
 
-    OrderWire.new(asset, true, px, sz, false, trigger)
+    OrderWire.new(asset, is_buy?, px, sz, false, trigger)
+    |> IO.inspect()
     |> OrderWire.purify()
-    |> Exchange.place_order()
+    |> Exchange.place_order("na", vault_address)
   end
-
-  def market_sell(coin, sz, px \\ nil, slippage \\ @default_slippage) do
-    px = slippage_price(coin, false, slippage, px)
-    trigger = trigger_from_order_type("ioc")
-    asset = Cache.asset_from_coin(coin)
-
-    OrderWire.new(asset, false, px, sz, false, trigger)
-    |> OrderWire.purify()
-    |> Exchange.place_order()
-  end
-
-  # def market_open(coin, is_buy, sz, px, order_type, slippage, cloid) do
-  #   px = slippage_price(coin, is_buy, slippage, px)
-  #   trigger = %{"trigger" => %{ # order_type = trigger obj
-  #     isMarket: false,
-  #     tpsl: "sl",
-  #     triggerPx: "0.11"
-  #   }}
-  #   trigger = %{"limit" => %{"tif" => order_type}}
-  #   Exchange.place_order(coin, is_buy, sz, px, trigger, false, cloid)
-  # end
 
   def market_close(address, coin, sz, px, slippage \\ @default_slippage, cloid \\ nil) do
     {:ok, %{"assetPositions" => positions}} = Info.clearinghouse_state(address)

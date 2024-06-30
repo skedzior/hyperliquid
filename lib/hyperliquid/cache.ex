@@ -8,8 +8,8 @@ defmodule Hyperliquid.Cache do
   Initializes the cache with meta and spot_meta information.
   """
   def init do
-    meta = Info.meta() |> elem(1)
-    spot_meta = Info.spot_meta() |> elem(1)
+    {:ok, meta} = Info.meta()
+    {:ok, spot_meta} = Info.spot_meta()
 
     all_mids = Info.all_mids() |> elem(1) |> Hyperliquid.Atomizer.atomize_keys()
     tokens = Map.get(spot_meta, "tokens")
@@ -91,38 +91,10 @@ defmodule Hyperliquid.Cache do
   end
 
   @doc """
-  Removes a key from the cache.
-  """
-  def del(key) do
-    Cachex.del!(@cache, key)
-  end
-
-  @doc """
-  Checks if a key exists in the cache.
-  """
-  def exists?(key) do
-    Cachex.exists?(@cache, key)
-  end
-
-  @doc """
   Increments a key's value in the cache by a given amount.
   """
   def incr(key, amount \\ 1) do
     Cachex.incr!(@cache, key, amount)
-  end
-
-  @doc """
-  Decrements a key's value in the cache by a given amount.
-  """
-  def decr(key, amount \\ 1) do
-    Cachex.decr!(@cache, key, amount)
-  end
-
-  @doc """
-  Clears all entries in the cache.
-  """
-  def clear do
-    Cachex.clear!(@cache)
   end
 
   ##### UTILS ######
@@ -140,4 +112,6 @@ defmodule Hyperliquid.Cache do
   end
 
   def get_token_key(token), do: "#{Map.get(token, "name")}:#{Map.get(token, "tokenId")}"
+
+  def increment, do: Cache.incr(:post_count)
 end

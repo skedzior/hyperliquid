@@ -11,38 +11,30 @@ defmodule Hyperliquid.Utils do
     Phoenix.PubSub.broadcast(@pubsub, channel, payload)
   end
 
-  # def order_request_to_order_wire(order, asset) do
-  #   order_wire = %{
-  #     "a" => asset,
-  #     "b" => order["is_buy"],
-  #     "p" => float_to_int_for_hashing(order["limit_px"]),
-  #     "s" => float_to_int_for_hashing(order["sz"]),
-  #     "r" => order["reduce_only"],
-  #     "t" => order_type_to_wire(order["order_type"])
-  #   }
-  #   # if "cloid" in order and order["cloid"] is not None:
-  #   #     order_wire["c"] = order["cloid"].to_raw()
-  #   order_wire
-  # end
-
-  # def order_wires_to_order_action(order_wires) do
-  #  %{
-  #     "type" => "order",
-  #     "orders" => order_wires,
-  #     "grouping" => "na",
-  #   }
-  # end
-
   def numbers_to_strings(struct, fields) do
     Enum.reduce(fields, struct, fn field, acc ->
       value = Map.get(acc, field)
-
-      if is_integer(value) or is_float(value) do
-        Map.put(acc, field, Kernel.to_string(value))
-      else
-        acc
-      end
+      Map.put(acc, field, float_to_string(value))
     end)
+  end
+
+  def float_to_string(value) when is_float(value) do
+    if value == trunc(value) do
+      Integer.to_string(trunc(value))
+    else
+      Float.to_string(value)
+    end
+  end
+
+  def float_to_string(value) when is_integer(value) do
+    Integer.to_string(value)
+  end
+
+  def float_to_string(value) when is_binary(value) do
+    case Float.parse(value) do
+      {float_value, ""} -> float_to_string(float_value)
+      :error -> value
+    end
   end
 
   def make_cloid do

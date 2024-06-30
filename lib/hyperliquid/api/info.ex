@@ -1,14 +1,6 @@
 defmodule Hyperliquid.Api.Info do
   use Hyperliquid.Api, context: "info"
 
-  def asset_map do
-    meta()
-    |> elem(1)
-    |> Map.get("universe")
-    |> Enum.with_index(&{&1["name"], &2})
-    |> Enum.into(%{})
-  end
-
   def user_vault_equities(user_address) do
     post(%{type: "userVaultEquities", user: user_address})
   end

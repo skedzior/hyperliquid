@@ -1,37 +1,39 @@
 defmodule Hyperliquid.Api.Exchange do
   use Hyperliquid.Api, context: "exchange"
 
-  def place_order(order, grouping \\ "na")
-  def place_order([_|_] = orders, grouping) do
-    post_action(%{type: "order", grouping: grouping, orders: orders})
+  def place_order(order), do: place_order(order, "na", nil)
+  def place_order(order, grouping \\ "na", vault_address \\ nil)
+
+  def place_order([_|_] = orders, grouping, vault_address) do
+    post_action(%{type: "order", grouping: grouping, orders: orders}, vault_address)
   end
 
-  def place_order(order, grouping) do
-    post_action(%{type: "order", grouping: grouping, orders: [order]})
+  def place_order(order, grouping, vault_address) do
+    post_action(%{type: "order", grouping: grouping, orders: [order]}, vault_address)
   end
 
-  def cancel_order([_|_] = cancels) do
-    post_action(%{type: "cancel", cancels: cancels})
+  def cancel_orders([_|_] = cancels, vault_address \\ nil) do
+    post_action(%{type: "cancel", cancels: cancels}, vault_address)
   end
 
-  def cancel_order(asset, oid) do
-    post_action(%{type: "cancel", cancels: [%{a: asset, o: oid}]})
+  def cancel_order(asset, oid, vault_address \\ nil) do
+    post_action(%{type: "cancel", cancels: [%{a: asset, o: oid}]}, vault_address)
   end
 
-  def cancel_order_by_cloid(asset, cloid) do
-    post_action(%{type: "cancelByCloid", cancels: [%{asset: asset, cloid: cloid}]})
+  def cancel_order_by_cloid(asset, cloid, vault_address \\ nil) do
+    post_action(%{type: "cancelByCloid", cancels: [%{asset: asset, cloid: cloid}]}, vault_address)
   end
 
-  def cancel_order_by_cloid([_|_] = cancels) do
-    post_action(%{type: "cancelByCloid", cancels: cancels})
+  def cancel_orders_by_cloid([_|_] = cancels, vault_address \\ nil) do
+    post_action(%{type: "cancelByCloid", cancels: cancels}, vault_address)
   end
 
-  def modify_order(oid, order) do
-    post_action(%{type: "modify", oid: oid, order: order})
+  def modify_order(oid, order, vault_address \\ nil) do
+    post_action(%{type: "modify", oid: oid, order: order}, vault_address)
   end
 
-  def modify_multiple_orders(modifies) do
-    post_action(%{type: "batchModify", modifies: modifies})
+  def modify_multiple_orders(modifies, vault_address \\ nil) do
+    post_action(%{type: "batchModify", modifies: modifies}, vault_address)
   end
 
   #TESTED

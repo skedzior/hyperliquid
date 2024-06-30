@@ -52,6 +52,8 @@ defmodule Hyperliquid.Manager do
     end
   end
 
+  def kill_worker(pid), do: Supervisor.stop_child(pid)
+
   # def maybe_start_stream(address) do
   #   subbed = get_subbed_users() |> Enum.member?(address)
   #   pid = find_userless_pids() |> Enum.at(0)

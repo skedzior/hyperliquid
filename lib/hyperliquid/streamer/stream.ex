@@ -33,14 +33,6 @@ defmodule Hyperliquid.Streamer.Stream do
     )
   end
 
-  def drop_user(pid) do
-    WebSockex.cast(pid, :drop_user)
-  end
-
-  # def replace_user(pid, user) do
-  #   WebSockex.cast(pid, {:replace_user, user})
-  # end
-
   def post(pid, type, payload) do
     WebSockex.send_frame(pid, {:text,
       Jason.encode!(%{
@@ -111,15 +103,13 @@ defmodule Hyperliquid.Streamer.Stream do
     |> then(&{:reply, {:text, &1}, state})
   end
 
-  # def handle_cast(:drop_user, %{subs: subs} = state) do
-  #   Enum.filter(subs, & Map.has_key?(&1, :user))
-  #   |> IO.inspect(label: "drop user subs")
-  #   |> Enum.map(&WebSockex.cast(self(), {:remove_sub, &1}))
+  @impl true
+  def handle_disconnect(reason, %{restarts: restarts} = state) do
+    IO.puts("Disconnected: #{inspect(reason)}")
+    {:ok, state}
+  end
 
-  #   {:ok, state}
-  # end
-
-  def handle_frame({:text, msg}, %{req_count: req_count} = state) do
+  def handle_frame({:text, msg}, %{req_count: req_count, id: id} = state) do
     msg = Jason.decode!(msg, keys: :atoms) #|> IO.inspect(label: "msg decoded")
     event = process_event(msg) #|> IO.inspect(label: "processed event")
 
@@ -152,6 +142,7 @@ defmodule Hyperliquid.Streamer.Stream do
     # end
 
     # broadcast("event_stream", event)
+    Registry.update_value(@workers, id, fn _ -> new_state end)
 
     {:ok, new_state}
   end

@@ -8,8 +8,8 @@ defmodule Hyperliquid.Cache do
   Initializes the cache with meta and spot_meta information.
   """
   def init do
-    meta = Info.meta() |> elem(1)
-    spot_meta = Info.spot_meta() |> elem(1)
+    {:ok, meta} = Info.meta()
+    {:ok, spot_meta} = Info.spot_meta()
 
     all_mids = Info.all_mids() |> elem(1) |> Hyperliquid.Atomizer.atomize_keys()
     tokens = Map.get(spot_meta, "tokens")

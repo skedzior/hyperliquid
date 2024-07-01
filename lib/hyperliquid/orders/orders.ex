@@ -88,27 +88,6 @@ defmodule Hyperliquid.Orders do
   end
 
   def market_close(%{"position" => p}, slippage, vault_address) do
-    # %{
-    #   "position" => %{
-    #     "coin" => "SOL",
-    #     "cumFunding" => %{
-    #       "allTime" => "1.426902",
-    #       "sinceChange" => "0.036191",
-    #       "sinceOpen" => "0.036191"
-    #     },
-    #     "entryPx" => "137.28",
-    #     "leverage" => %{"rawUsd" => "-63.414639", "type" => "isolated", "value" => 13},
-    #     "liquidationPx" => "130.08131077",
-    #     "marginUsed" => "7.080361",
-    #     "maxLeverage" => 20,
-    #     "positionValue" => "70.495",
-    #     "returnOnEquity" => "0.35132576",
-    #     "szi" => "0.5",
-    #     "unrealizedPnl" => "1.855"
-    #   },
-    #   "type" => "oneWay"
-    # }
-
     szi = String.to_float(p["szi"])
     sz = abs(szi)
     is_buy? = if szi < 0, do: true, else: false

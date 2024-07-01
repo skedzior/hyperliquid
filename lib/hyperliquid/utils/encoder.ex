@@ -132,7 +132,6 @@ defmodule Hyperliquid.Encoder do
     ]
   end
 
-  #TESTED
   def pack_action(%{type: "updateLeverage"} = action, nonce, vault_address) do
     [
       first_byte(action),
@@ -169,7 +168,6 @@ defmodule Hyperliquid.Encoder do
     ]
   end
 
-  #TESTED
   def pack_action(%{type: "updateIsolatedMargin"} = action, nonce, vault_address) do
     [
       first_byte(action),
@@ -179,7 +177,6 @@ defmodule Hyperliquid.Encoder do
     ]
   end
 
-  #TESTED
   def pack_action(%{type: "vaultTransfer"} = action, nonce, vault_address) do
     [
       first_byte(action),

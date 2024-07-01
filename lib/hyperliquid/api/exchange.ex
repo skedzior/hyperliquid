@@ -46,7 +46,6 @@ defmodule Hyperliquid.Api.Exchange do
     })
   end
 
-  #TESTED
   def update_isolated_margin(asset, is_buy, ntli) do
     post_action(%{
       type: "updateIsolatedMargin",
@@ -56,7 +55,6 @@ defmodule Hyperliquid.Api.Exchange do
     })
   end
 
-  # TESTED
   def spot_perp_transfer(amount, to_perp) do
     post_action(%{
       type: "spotUser",
@@ -67,7 +65,6 @@ defmodule Hyperliquid.Api.Exchange do
     })
   end
 
-  # TESTED
   def vault_transfer(vault_address, is_deposit, amount_usd) do
     post_action(%{
       type: "vaultTransfer",
@@ -78,7 +75,6 @@ defmodule Hyperliquid.Api.Exchange do
     # positive usd = transfer, negative = withdraw
   end
 
-  # TESTED
   def create_sub_account(name) do
     post_action(%{
       type: "createSubAccount",
@@ -86,7 +82,6 @@ defmodule Hyperliquid.Api.Exchange do
     })
   end
 
-  # TESTED
   def sub_account_transfer(user, is_deposit, amount_usd) do
     post_action(%{
       type: "subAccountTransfer",
@@ -96,7 +91,6 @@ defmodule Hyperliquid.Api.Exchange do
     })
   end
 
-  # TESTED
   def sub_account_spot_transfer(user, is_deposit, token, amount) do
     post_action(%{
       type: "subAccountSpotTransfer",
@@ -109,7 +103,6 @@ defmodule Hyperliquid.Api.Exchange do
 
   ####### non l1 actions with different signer ##########
 
-  # TESTED
   def usd_send(destination, amount, time) do
     %{
       type: "usdSend",
@@ -121,7 +114,6 @@ defmodule Hyperliquid.Api.Exchange do
     |> post_action(time)
   end
 
-  # TESTED
   def spot_send(destination, token, amount, time) do
     #TODO: programatically get tokenname and address
     post_action(%{
@@ -132,10 +124,9 @@ defmodule Hyperliquid.Api.Exchange do
       token: token, #tokenName:tokenId, e.g. "PURR:0xc4bf3f870c0e9465323c0b6ed28096c2"
       amount: amount,
       time: time
-    }, time)
+    }, nil, time)
   end
 
-  # TESTED
   def withdraw_from_bridge(destination, amount, time) do
     post_action(%{
       type: "withdraw3",

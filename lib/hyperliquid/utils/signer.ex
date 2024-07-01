@@ -26,7 +26,7 @@ defmodule Hyperliquid.Signer do
 
     case EIP712.sign(data, trim_0x(secret)) do
       {:ok, hex_signature} -> split_sig(hex_signature)
-      resp -> IO.inspect(resp, label: "fucking rwesp")
+      resp -> IO.inspect(resp, label: "unexpected signature")
     end
   end
 
@@ -86,7 +86,7 @@ defmodule Hyperliquid.Signer do
 
     case EIP712.sign(data, trim_0x(secret)) do
       {:ok, hex_signature} -> split_sig(hex_signature)
-      resp -> IO.inspect(resp, label: "fucking rwesp")
+      resp -> IO.inspect(resp, label: "unexpected signature")
     end
   end
 

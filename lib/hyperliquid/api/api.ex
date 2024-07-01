@@ -18,6 +18,7 @@ defmodule Hyperliquid.Api do
 
       def post_action(action), do: post_action(action, nil, get_timestamp(), @secret)
       def post_action(action, vault_address), do: post_action(action, vault_address, get_timestamp(), @secret)
+      def post_action(action, vault_address, nonce), do: post_action(action, vault_address, nonce, @secret)
 
       def post_action(%{type: "usdSend"} = action, nil, nonce, secret) do
         signature = Signer.sign_usd_transfer_action(action, @is_mainnet, secret)

@@ -1,6 +1,8 @@
 defmodule Hyperliquid.Utils do
   import Hyperliquid.Atomizer
 
+  def atomize_keys(data), do: Atomizer.atomize_keys(data)
+
   @pubsub Hyperliquid.PubSub
 
   def subscribe(channel) do

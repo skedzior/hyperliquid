@@ -121,24 +121,3 @@ defmodule Hyperliquid.Api.Subscription do
 
   def to_encoded_message(sub, sub? \\ true), do: to_message(sub, sub?) |> Jason.encode!()
 end
-
-# {
-#   "channel": "activeAssetCtx",
-#   "data": {
-#       "coin": "SOL",
-#       "ctx": {
-#           "funding": "0.00003225",
-#           "openInterest": "438035.9",
-#           "prevDayPx": "157.14",
-#           "dayNtlVlm": "118802416.6821",
-#           "premium": "0.00066774",
-#           "oraclePx": "149.76",
-#           "markPx": "149.86",
-#           "midPx": "149.865",
-#           "impactPxs": [
-#               "149.86",
-#               "149.8995"
-#           ]
-#       }
-#   }
-# }

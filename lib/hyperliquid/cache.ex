@@ -111,7 +111,11 @@ defmodule Hyperliquid.Cache do
     |> Enum.find(& &1["tokenId"] == address)
   end
 
-  def get_token_key(token), do: "#{Map.get(token, "name")}:#{Map.get(token, "tokenId")}"
+  def get_token_key(token) when is_map(token), do: "#{Map.get(token, "name")}:#{Map.get(token, "tokenId")}"
+  def get_token_key(name), do:
+    name
+    |> get_token_by_name()
+    |> get_token_key()
 
   def increment, do: Cache.incr(:post_count)
 end

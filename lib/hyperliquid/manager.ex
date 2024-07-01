@@ -54,31 +54,6 @@ defmodule Hyperliquid.Manager do
 
   def kill_worker(pid), do: Supervisor.stop_child(pid)
 
-  # def maybe_start_stream(address) do
-  #   subbed = get_subbed_users() |> Enum.member?(address)
-  #   pid = find_userless_pids() |> Enum.at(0)
-  #   worker_count = get_worker_count()
-  #   IO.inspect({subbed, pid, worker_count, find_userless_pids()})
-  #   # TODO: may need to async await task
-  #   cond do
-  #     subbed -> IO.inspect("already subbed to this address")
-  #     worker_count < @max_ws_clients -> async_auto_start_user(address)
-  #     !is_nil(pid) -> async_auto_start_user(pid, address)
-  #     true -> throw("max ws conns reached")
-  #   end
-  # end
-
-  # defp async_auto_start_user(address) do
-  #   task = Task.async(fn -> auto_start_user(address) end)
-  #   Task.await(task)
-  # end
-
-  # def auto_start_user(address) do
-  #   address
-  #   |> Subscription.make_user_subs()
-  #   |> Supervisor.start_stream()
-  # end
-
   def auto_start_user(address, coin \\ nil) do
     address = String.downcase(address)
 

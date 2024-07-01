@@ -115,13 +115,14 @@ defmodule Hyperliquid.Api.Exchange do
   end
 
   def spot_send(destination, token, amount, time) do
-    #TODO: programatically get tokenname and address
+    # use Cache.get_token_key(name) to get the proper token key
+    # tokenName:tokenId, e.g. "PURR:0xc1fb593aeffbeb02f85e0308e9956a90"
     post_action(%{
       type: "spotSend",
       hyperliquidChain: if(mainnet?(), do: "Mainnet", else: "Testnet"),
       signatureChainId: if(mainnet?(), do: to_hex(42_161), else: to_hex(421_614)),
       destination: Ethers.Utils.to_checksum_address(destination),
-      token: token, #tokenName:tokenId, e.g. "PURR:0xc4bf3f870c0e9465323c0b6ed28096c2"
+      token: token,
       amount: amount,
       time: time
     }, nil, time)

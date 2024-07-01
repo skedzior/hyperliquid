@@ -74,12 +74,17 @@ defmodule Hyperliquid.Api.Subscription do
 
   def active_asset_data(user, coin), do: %{type: "activeAssetData", user: user, coin: coin}
 
-  # helpers
+  ###### helpers ########
+
   def make_user_subs(user),
     do: [
-      order_updates(user),
+      notification(user),
       user_fills(user),
-      user_events(user)
+      user_non_funding_ledger_updates(user),
+      user_twap_slice_fills(user),
+      user_twap_history(user),
+      user_historical_orders(user),
+      user_fundings(user)
     ]
 
   def make_user_subs(user, coin), do: make_user_subs(user) ++ [active_asset_data(user, coin)]

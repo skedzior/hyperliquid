@@ -26,13 +26,19 @@ defmodule Hyperliquid.Manager do
 
   def get_subbed_users, do: Registry.select(@users, [{{:"$1", :_, :_}, [], [:"$1"]}])
 
-  def get_active_subs, do:
+  def get_active_non_user_subs, do:
     @workers
     |> Registry.select([{{:_, :_, :"$3"}, [], [:"$3"]}])
     |> Enum.flat_map(& &1.subs)
     |> Enum.filter(&!Map.has_key?(&1, :user))
 
-  def get_active_non_user_subs, do: get_active_subs() |> Enum.filter(&!Map.has_key?(&1, :user))
+  def get_active_user_subs, do:
+    @users
+    |> Registry.select([{{:_, :_, :"$3"}, [], [:"$3"]}])
+    |> Enum.flat_map(& &1)
+    |> Enum.filter(&Map.has_key?(&1, :user))
+
+  def get_all_active_subs, do: get_active_user_subs() ++ get_active_non_user_subs()
 
   def get_worker_pids, do: Registry.select(@workers, [{{:_, :"$2", :_}, [], [:"$2"]}])
 

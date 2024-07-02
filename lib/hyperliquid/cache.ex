@@ -1,4 +1,7 @@
 defmodule Hyperliquid.Cache do
+  @moduledoc """
+  application cache for storing asset lists and exchange meta information
+  """
   alias __MODULE__
   alias Hyperliquid.Api.Info
 

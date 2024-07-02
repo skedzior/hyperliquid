@@ -1,9 +1,12 @@
 defmodule Hyperliquid.Streamer.Stream do
+  @moduledoc """
+  ws client
+  """
   use WebSockex
   require Logger
 
   import Hyperliquid.Utils
-  alias Hyperliquid.Api.{Subscription, Explorer}
+  alias Hyperliquid.Api.Subscription
   alias Hyperliquid.Cache
 
   @ws_url Application.get_env(:hyperliquid, :ws_url)
@@ -54,6 +57,7 @@ defmodule Hyperliquid.Streamer.Stream do
     WebSockex.cast(pid, {:remove_sub, sub})
   end
 
+  @impl true
   def handle_connect(_conn, state) do
     :timer.send_interval(@heartbeat_interval, self(), :send_ping)
 
@@ -74,6 +78,7 @@ defmodule Hyperliquid.Streamer.Stream do
     end
   end
 
+  @impl true
   def handle_cast({:add_sub, sub}, %{user: user, subs: subs} = state) do
     message = Subscription.to_encoded_message(sub)
     subject = Subscription.get_subject(sub)
@@ -92,6 +97,7 @@ defmodule Hyperliquid.Streamer.Stream do
     end
   end
 
+  @impl true
   def handle_cast({:remove_sub, sub}, %{user: user, subs: subs} = state) do
     Subscription.to_encoded_message(sub, false)
     |> then(&{:reply, {:text, &1}, state})
@@ -103,6 +109,7 @@ defmodule Hyperliquid.Streamer.Stream do
     {:ok, state}
   end
 
+  @impl true
   def handle_frame({:text, msg}, %{req_count: req_count, id: id} = state) do
     msg = Jason.decode!(msg, keys: :atoms)
     event = process_event(msg)
@@ -161,7 +168,7 @@ defmodule Hyperliquid.Streamer.Stream do
   end
 
   defp update_active_subs(event, state) do
-    IO.inspect(event, label: "update_active_subs catchall")
+    Logger.warning("Update active subs catchall: #{inspect(event)}")
     state
   end
 
@@ -217,8 +224,9 @@ defmodule Hyperliquid.Streamer.Stream do
     }
   end
 
-  def terminate(close_reason, state) do
-    IO.inspect({close_reason, state}, label: "Websocket terminated:")
+  @impl true
+  def terminate(close_reason, _state) do
+    Logger.warning("Websocket terminated: #{inspect(close_reason)}")
   end
 
   defp via(state) do

@@ -1,4 +1,8 @@
 defmodule Hyperliquid.Signer do
+  @moduledoc """
+  signing and payload construction methods
+  """
+  require Logger
   alias Hyperliquid.Encoder
   import Hyperliquid.Utils
 
@@ -26,7 +30,7 @@ defmodule Hyperliquid.Signer do
 
     case EIP712.sign(data, trim_0x(secret)) do
       {:ok, hex_signature} -> split_sig(hex_signature)
-      resp -> IO.inspect(resp, label: "unexpected signature")
+      _resp -> Logger.warning("Unexpected signature")
     end
   end
 
@@ -86,7 +90,7 @@ defmodule Hyperliquid.Signer do
 
     case EIP712.sign(data, trim_0x(secret)) do
       {:ok, hex_signature} -> split_sig(hex_signature)
-      resp -> IO.inspect(resp, label: "unexpected signature")
+      _resp -> Logger.warning("Unexpected signature")
     end
   end
 

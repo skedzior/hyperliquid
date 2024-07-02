@@ -1,4 +1,7 @@
 defmodule Hyperliquid.Api.Exchange do
+  @moduledoc """
+  exchange endpoints
+  """
   use Hyperliquid.Api, context: "exchange"
 
   def place_order(order), do: place_order(order, "na", nil)
@@ -36,7 +39,6 @@ defmodule Hyperliquid.Api.Exchange do
     post_action(%{type: "batchModify", modifies: modifies}, vault_address)
   end
 
-  #TESTED
   def update_leverage(asset, is_cross, leverage) do
     post_action(%{
       type: "updateLeverage",

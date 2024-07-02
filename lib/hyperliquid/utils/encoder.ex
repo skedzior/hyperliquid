@@ -1,4 +1,7 @@
 defmodule Hyperliquid.Encoder do
+  @moduledoc """
+  manual encoding methods to support structured data
+  """
   alias Hyperliquid.Utils
   import Msgpax
 

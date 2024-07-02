@@ -1,4 +1,7 @@
 defmodule Hyperliquid.Atomizer do
+  @moduledoc """
+  utils for converting map keys to atoms
+  """
   def atomize_keys(data) when is_map(data) do
     Enum.reduce(data, %{}, fn {key, value}, acc ->
       atom_key = if is_binary(key), do: String.to_atom(key), else: key

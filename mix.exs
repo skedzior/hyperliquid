@@ -44,7 +44,7 @@ defmodule Hyperliquid.MixProject do
       {:ex_eip712, "~> 0.3.0"},
       {:ethers, "~> 0.4.5"},
       {:msgpax, "~> 2.4"},
-      {:ex_doc, "~> 0.18.0", only: :dev, runtime: false},
+      {:ex_doc, "~> 0.31", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
     ]
   end

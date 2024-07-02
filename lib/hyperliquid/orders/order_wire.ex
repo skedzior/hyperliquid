@@ -1,4 +1,6 @@
 defmodule Hyperliquid.Orders.OrderWire do
+  @moduledoc false
+
   import Hyperliquid.Utils
 
   defstruct [:a, :b, :p, :s, :r, :t, c: nil]
@@ -21,8 +23,7 @@ defmodule Hyperliquid.Orders.OrderWire do
   @doc """
   Converts price and size to string if they are integer or float, and removes nil values from the struct.
   """
-  def purify(%__MODULE__{} = wire, type \\ :perp) do
-    #TODO: implement PriceConverter.convert_price(wire.p, type)
+  def purify(%__MODULE__{} = wire) do
     wire
     |> numbers_to_strings([:p, :s])
     |> Map.from_struct()

@@ -1,5 +1,9 @@
 defmodule Hyperliquid.Manager do
+  @moduledoc """
+  application manager mostly responsible for handling ws clients
+  """
   use GenServer
+  require Logger
 
   alias Hyperliquid.Cache
   alias Hyperliquid.Api.Subscription
@@ -7,10 +11,6 @@ defmodule Hyperliquid.Manager do
 
   @workers :worker_registry
   @users :user_registry
-
-  @max_ws_conns 100
-  @max_ws_user_conns 10
-  @max_ws_subscriptions 1_000
 
   def start_link(_) do
     GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
@@ -50,9 +50,10 @@ defmodule Hyperliquid.Manager do
   def maybe_start_stream(sub) when is_map(sub) do
     subbed? = get_active_non_user_subs() |> Enum.member?(sub)
 
-    cond do
-      subbed? -> IO.inspect("already subbed to this topic")
-      true    -> Supervisor.start_stream([sub])
+    if subbed? do
+      Logger.warning("already subbed to this topic")
+    else
+      Supervisor.start_stream([sub])
     end
   end
 
@@ -65,7 +66,7 @@ defmodule Hyperliquid.Manager do
     |> Enum.map(&String.downcase(&1))
     |> Enum.member?(address)
     |> case do
-      true -> IO.inspect("already subbed to user")
+      true -> Logger.warning("already subbed to user")
       _    -> Subscription.make_user_subs(address, coin) |> Supervisor.start_stream()
     end
   end
@@ -74,7 +75,7 @@ defmodule Hyperliquid.Manager do
     id = Registry.keys(@workers, pid) |> Enum.at(0)
 
     case id do
-      nil -> IO.inspect("not a worker pid")
+      nil -> Logger.warning("not a worker pid")
       _   -> Registry.values(@workers, id, pid) |> Enum.at(0)
     end
     |> Map.get(:subs)

@@ -1,12 +1,11 @@
 defmodule Hyperliquid.Orders do
+  @moduledoc """
+  helper methods for order creation
+  """
+
   alias Hyperliquid.Api.{Info, Exchange}
   alias Hyperliquid.Orders.{OrderWire, PriceConverter}
   alias Hyperliquid.Cache
-
-  @type coin :: String.t()
-  @type is_buy :: boolean()
-  @type slippage :: float()
-  @type px :: float() | nil
 
   @default_slippage 0.05
 
@@ -27,7 +26,6 @@ defmodule Hyperliquid.Orders do
     end
   end
 
-  @spec slippage_price(String.t(), boolean(), float() | nil, float() | nil) :: float()
   def slippage_price(coin, is_buy?, slippage \\ @default_slippage, px \\ nil) do
     px = px || get_midprice(coin)
     px = if is_buy?, do: px * (1 + slippage), else: px * (1 - slippage)

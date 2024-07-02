@@ -1,4 +1,7 @@
 defmodule Hyperliquid.Api.Explorer do
+  @moduledoc """
+  explorer endpoints
+  """
   use Hyperliquid.Api, context: "explorer"
 
   def block_details(block) do

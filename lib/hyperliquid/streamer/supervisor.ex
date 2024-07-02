@@ -1,4 +1,7 @@
 defmodule Hyperliquid.Streamer.Supervisor do
+  @moduledoc """
+  ws supervisor
+  """
   use DynamicSupervisor
 
   alias Hyperliquid.Streamer.Stream

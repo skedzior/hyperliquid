@@ -1,5 +1,7 @@
 defmodule Hyperliquid.Api do
-
+  @moduledoc """
+  base api macro
+  """
   defmacro __using__(opts) do
     quote do
       import Hyperliquid.{Api, Utils}

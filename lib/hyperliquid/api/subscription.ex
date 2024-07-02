@@ -1,4 +1,7 @@
 defmodule Hyperliquid.Api.Subscription do
+  @moduledoc """
+  subscriptions and related helper methods
+  """
   alias Hyperliquid.Utils
 
   @type subscription :: %{

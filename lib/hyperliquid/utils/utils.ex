@@ -1,5 +1,8 @@
 defmodule Hyperliquid.Utils do
-  import Hyperliquid.Atomizer
+  @moduledoc """
+  application wide utils
+  """
+  alias Hyperliquid.Atomizer
 
   def atomize_keys(data), do: Atomizer.atomize_keys(data)
 

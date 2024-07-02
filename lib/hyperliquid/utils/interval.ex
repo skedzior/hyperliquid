@@ -1,4 +1,8 @@
 defmodule Hyperliquid.Interval do
+  @moduledoc """
+  interval helpers for intervals supported on Hyperliquid
+  """
+
   @minute 60_000
   @hour @minute * 60
   @day @hour * 24

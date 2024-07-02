@@ -1,4 +1,7 @@
 defmodule Hyperliquid.Api.Info do
+  @moduledoc """
+  info endpoints
+  """
   use Hyperliquid.Api, context: "info"
 
   def user_vault_equities(user_address) do

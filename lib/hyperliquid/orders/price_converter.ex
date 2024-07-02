@@ -1,4 +1,7 @@
 defmodule Hyperliquid.Orders.PriceConverter do
+  @moduledoc """
+  helper methods for converting prices to the proper significant figs
+  """
   def convert_price(price, type \\ :perp)
   def convert_price(price, type) when type in [:perp, :spot] do
     cond do

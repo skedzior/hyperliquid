@@ -5,7 +5,7 @@ defmodule Hyperliquid.Cache do
   @cache :hyperliquid
 
   @doc """
-  Initializes the cache with meta and spot_meta information.
+  Initializes the cache with api information.
   """
   def init do
     {:ok, meta} = Info.meta()
@@ -32,6 +32,7 @@ defmodule Hyperliquid.Cache do
     Cachex.put!(@cache, :tokens, tokens)
   end
 
+  ###### Setters ######
   defp create_asset_map(data, buffer \\ 0) do
     data
     |> Map.get("universe")
@@ -45,12 +46,43 @@ defmodule Hyperliquid.Cache do
     |> Enum.map(&{&1["name"], &1["szDecimals"]})
     |> Enum.into(%{})
   end
+
   defp create_decimal_map(data, decimals) do
     data
     |> Map.get("universe")
     |> Enum.map(&{&1["name"], decimals})
     |> Enum.into(%{})
   end
+
+  ###### Utils ######
+  def asset_from_coin(coin), do: Cache.get(:asset_map)[coin]
+  def decimals_from_coin(coin), do: Cache.get(:decimal_map)[coin]
+
+  def get_token_by_index(index), do:
+    Cache.get(:tokens)
+    |> Enum.find(& &1["index"] == index)
+
+  def get_token_by_name(name), do:
+    Cache.get(:tokens)
+    |> Enum.find(& &1["name"] == name)
+
+  def get_token_by_address(address), do:
+    Cache.get(:tokens)
+    |> Enum.find(& &1["tokenId"] == address)
+
+  def get_token_name_by_index(index), do:
+    get_token_by_index(index)
+    |> Map.get("name")
+
+  def get_token_key(token) when is_map(token), do: "#{Map.get(token, "name")}:#{Map.get(token, "tokenId")}"
+  def get_token_key(name), do:
+    name
+    |> get_token_by_name()
+    |> get_token_key()
+
+  def increment, do: Cache.incr(:post_count)
+
+  ###### Wrappers ######
 
   @doc """
   Retrieves a value from the cache by key.
@@ -77,45 +109,9 @@ defmodule Hyperliquid.Cache do
   end
 
   @doc """
-  Executes a function within the context of the cache.
-  """
-  def execute(func) do
-    Cachex.execute!(@cache, func)
-  end
-
-  @doc """
-  Executes a transaction for a set of keys.
-  """
-  def transaction(keys, func) do
-    Cachex.transaction!(@cache, keys, func)
-  end
-
-  @doc """
   Increments a key's value in the cache by a given amount.
   """
   def incr(key, amount \\ 1) do
     Cachex.incr!(@cache, key, amount)
   end
-
-  ##### UTILS ######
-  def asset_from_coin(coin), do: Cache.get(:asset_map)[coin]
-  def decimals_from_coin(coin), do: Cache.get(:decimal_map)[coin]
-
-  def get_token_by_name(name) do
-    Cache.get(:tokens)
-    |> Enum.find(& &1["name"] == name)
-  end
-
-  def get_token_by_address(address) do
-    Cache.get(:tokens)
-    |> Enum.find(& &1["tokenId"] == address)
-  end
-
-  def get_token_key(token) when is_map(token), do: "#{Map.get(token, "name")}:#{Map.get(token, "tokenId")}"
-  def get_token_key(name), do:
-    name
-    |> get_token_by_name()
-    |> get_token_key()
-
-  def increment, do: Cache.incr(:post_count)
 end

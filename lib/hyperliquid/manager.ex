@@ -22,8 +22,6 @@ defmodule Hyperliquid.Manager do
     {:ok, %{}}
   end
 
-  # def subscribed?(sub, registry), do: Enum.member?(get_active_subs(registry) , sub)
-
   def get_subbed_users, do: Registry.select(@users, [{{:"$1", :_, :_}, [], [:"$1"]}])
 
   def get_active_non_user_subs, do:
@@ -88,24 +86,4 @@ defmodule Hyperliquid.Manager do
 
     Enum.map(subs, &Stream.unsubscribe(pid, &1))
   end
-
-  # def unsubscribe_all do
-  #   @registry
-  #   |> Registry.select([{{:"$1", :"$2", :"$3"}, [], [:"$2"]}])
-  #   |> Enum.uniq()
-  #   |> Enum.flat_map(&Registry.keys(@registry, &1))
-  #   |> Enum.flat_map(&Registry.lookup(@registry, &1))
-  #   |> Enum.map(fn {pid, sub} ->
-  #     Stream.unsubscribe(pid, sub)
-  #   end)
-  # end
-
-  # # def terminate_innactive do
-  # #   WebSockex.send_frame(pid, {:close, %{}})
-  # # end
-
-  # def unsubscribe_topic(address, topic_key) do
-  #   [{pid, topic}] = Registry.lookup(@registry, {address, topic_key})
-  #   Stream.unsubscribe(pid, topic)
-  # end
 end

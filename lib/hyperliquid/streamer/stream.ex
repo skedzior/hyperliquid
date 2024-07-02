@@ -54,14 +54,11 @@ defmodule Hyperliquid.Streamer.Stream do
     WebSockex.cast(pid, {:remove_sub, sub})
   end
 
-  ## server
   def handle_connect(_conn, state) do
-    Logger.info("Connected to the WebSocket server - auto subbing")
     :timer.send_interval(@heartbeat_interval, self(), :send_ping)
 
-    state.subs
-    |> Enum.map(&WebSockex.cast(self(), {:add_sub, &1}))
-    IO.inspect(state.subs, label: "subs")
+    Enum.each(state.subs, &WebSockex.cast(self(), {:add_sub, &1}))
+
     {:ok, %{state | subs: []}}
   end
 
@@ -80,7 +77,6 @@ defmodule Hyperliquid.Streamer.Stream do
   def handle_cast({:add_sub, sub}, %{user: user, subs: subs} = state) do
     message = Subscription.to_encoded_message(sub)
     subject = Subscription.get_subject(sub)
-    IO.inspect({sub, subject}, label: "add_sub - msg")
 
     cond do
       subject == :user && is_nil(user) ->
@@ -89,7 +85,6 @@ defmodule Hyperliquid.Streamer.Stream do
         {:reply, {:text, message}, %{state | user: new_user}}
 
       subject == :user && user != String.downcase(sub.user) ->
-        IO.inspect("already subbed to a user - must call replace")
         {:ok, state}
 
       true ->
@@ -99,7 +94,6 @@ defmodule Hyperliquid.Streamer.Stream do
 
   def handle_cast({:remove_sub, sub}, %{user: user, subs: subs} = state) do
     Subscription.to_encoded_message(sub, false)
-    |> IO.inspect(label: "remove_sub - msg")
     |> then(&{:reply, {:text, &1}, state})
   end
 
@@ -110,8 +104,8 @@ defmodule Hyperliquid.Streamer.Stream do
   end
 
   def handle_frame({:text, msg}, %{req_count: req_count, id: id} = state) do
-    msg = Jason.decode!(msg, keys: :atoms) #|> IO.inspect(label: "msg decoded")
-    event = process_event(msg) #|> IO.inspect(label: "processed event")
+    msg = Jason.decode!(msg, keys: :atoms)
+    event = process_event(msg)
 
     new_state =
       case event.channel do
@@ -128,28 +122,11 @@ defmodule Hyperliquid.Streamer.Stream do
       Cache.put(:all_mids, event.data.mids)
     end
 
-    # if event.channel == "candle" do
-    #   channel = "#{event.data.s}:candle:#{event.data.i}"
-    #   IO.inspect(channel, label: "candle evt")
-    #   broadcast(channel, event.data)
-    # end
+    broadcast(event.channel, event)
 
-    # if event.channel == "trades" do
-    #   coin = Enum.at(event.data, 0) |> Map.get(:coin)
-    #   channel = "#{coin}:trades"
-    #   IO.inspect(channel, label: "trades evt")
-    #   broadcast(channel, event.data)
-    # end
-
-    # broadcast("event_stream", event)
     Registry.update_value(@workers, id, fn _ -> new_state end)
 
     {:ok, new_state}
-  end
-
-  def handle_frame(:close, state) do
-    IO.inspect(state, label: "closing")
-    {:close, state}
   end
 
   defp update_active_subs(%{data: %{method: method, subscription: sub}}, %{subs: subs} = state) do
@@ -157,7 +134,7 @@ defmodule Hyperliquid.Streamer.Stream do
       case method do
         "subscribe" -> [sub | subs]
         "unsubscribe" -> Enum.reject(subs, &(&1 == sub))
-        _ -> IO.inspect("no bueno zone")
+        _ -> subs
       end
 
     user =
@@ -189,7 +166,6 @@ defmodule Hyperliquid.Streamer.Stream do
   end
 
   def process_event(%{channel: ch, data: %{subscription: sub, method: method} = data}) do
-    IO.inspect(ch, label: "ch")
     %{
       channel: ch,
       subject: Subscription.get_subject(sub),
@@ -198,7 +174,6 @@ defmodule Hyperliquid.Streamer.Stream do
       sub: sub,
       key: Subscription.to_key(sub)
     }
-    |> IO.inspect(label: "process_sub_event")
   end
 
   def process_event(%{channel: "post", data: %{id: id, response: response}} = msg) do
@@ -211,17 +186,14 @@ defmodule Hyperliquid.Streamer.Stream do
   end
 
   def process_event(%{channel: ch, data: data} = msg) do
-    #IO.inspect(ch, label: "ch")
     %{
       channel: ch,
       subject: Subscription.get_subject(ch),
       data: data
     }
-    #|> IO.inspect(label: "process_event")
   end
 
   def process_event([%{action: _} | _] = msg) do
-    #IO.inspect(msg, label: "exp txs")
     %{
       channel: "explorerTxs",
       subject: :txs,
@@ -230,23 +202,14 @@ defmodule Hyperliquid.Streamer.Stream do
   end
 
   def process_event([%{height: block} = exp_block | _] = msg) do
-    # fullblock = Hyperliquid.Api.Info.get_orders("0x21aa8b9f2339af03e9e9be71a76ab70cbef74157")#Explorer.block_details(block)
-
-    # case fullblock do
-    #   {:error, msg} -> IO.inspect("fail")
-    #   _ -> IO.inspect(block)
-    # end
-
     %{
       channel: "explorerBlock",
       subject: :block,
       data: msg
     }
-    #IO.inspect(exp_block["blockTime"], label: "#{block}")
   end
 
   def process_event(msg) do
-    #msg |> IO.inspect(label: "process_event - catchall")
     %{
       channel: nil,
       subject: nil,

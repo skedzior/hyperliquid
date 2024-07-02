@@ -17,11 +17,6 @@ defmodule Hyperliquid.Encoder do
     createSubAccount: pack!("createSubAccount"),
     subAccountTransfer: pack!("subAccountTransfer"),
     subAccountSpotTransfer: pack!("subAccountSpotTransfer")
-    # usdTransfer: pack!("usdTransfer"),
-    # usdSend: pack!("usdSend"),
-    # withdraw2: pack!("withdraw2"),
-    # withdraw3: pack!("withdraw3"),
-    # spotSend: pack!("spotSend"),
   }
 
   @orders pack!("orders")

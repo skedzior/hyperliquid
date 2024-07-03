@@ -1,6 +1,34 @@
 defmodule Hyperliquid.Interval do
   @moduledoc """
-  interval helpers for intervals supported on Hyperliquid
+  Provides helper functions for handling time intervals supported by Hyperliquid.
+
+  This module offers utilities for working with various time intervals, from
+  1 minute to 1 month. It includes functions to list supported intervals,
+  convert intervals to milliseconds, and calculate the next interval start time.
+
+  ## Supported Intervals
+
+  The following intervals are supported:
+  1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 8h, 12h, 1d, 3d, 1w, 1M
+
+  ## Usage
+
+  You can use this module to:
+  - Get a list of supported intervals
+  - Convert intervals to milliseconds
+  - Calculate the next start time for a given interval
+
+  Example:
+
+      iex> Hyperliquid.Interval.list()
+      ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "8h", "12h", "1d", "3d", "1w", "1M"]
+
+      iex> Hyperliquid.Interval.to_milliseconds("1h")
+      3600000
+
+      iex> current_time = :os.system_time(:millisecond)
+      iex> Hyperliquid.Interval.next_start(current_time, "15m")
+      # Returns the next 15-minute interval start time
   """
 
   @minute 60_000

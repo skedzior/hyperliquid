@@ -1,6 +1,20 @@
 defmodule Hyperliquid.Utils do
   @moduledoc """
-  application wide utils
+  Provides utility functions for the Hyperliquid application.
+
+  This module offers a collection of helper functions that are used across the
+  Hyperliquid application. It includes utilities for data manipulation,
+  PubSub operations, number formatting, random ID generation, and hexadecimal
+  conversions.
+
+  ## Key Features
+
+  - Atomize keys in data structures
+  - PubSub subscription and broadcasting
+  - Number to string conversions with special float handling
+  - Random client order ID (cloid) generation
+  - Hexadecimal string manipulations
+  - Timestamp generation
   """
   alias Hyperliquid.Atomizer
 

@@ -1,6 +1,38 @@
 defmodule Hyperliquid.Api do
   @moduledoc """
-  base api macro
+  A base API macro for interacting with the Hyperliquid API.
+
+  This module provides a macro that sets up common functionality for API interactions,
+  including signing requests, handling different types of actions, and processing responses.
+
+  When used, it imports necessary modules, sets up aliases, and defines several helper functions
+  for making API calls.
+
+  ## Usage
+
+  Use this module in other API-specific modules like this:
+
+      use Hyperliquid.Api, context: "your_context"
+
+  ## Configuration
+
+  This module relies on the following application environment variables:
+
+  - `:http_url` - The base URL for API requests
+  - `:is_mainnet` - Boolean indicating whether to use mainnet or testnet
+  - `:private_key` - The private key used for signing requests
+
+  ## Provided Functions
+
+  When used, this module provides the following functions:
+
+  - `mainnet?/0` - Returns whether the API is configured for mainnet
+  - `endpoint/0` - Returns the full API endpoint URL
+  - `post_action/1`, `post_action/2`, `post_action/3`, `post_action/4` - Functions for posting various types of actions
+  - `post/1` - Function for making a simple POST request
+  - `post_signed/1` - Function for making a signed POST request
+
+  It also provides a `handle_response/1` function for processing API responses.
   """
   defmacro __using__(opts) do
     quote do

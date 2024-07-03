@@ -1,6 +1,34 @@
 defmodule Hyperliquid.Encoder do
   @moduledoc """
-  manual encoding methods to support structured data
+  Provides encoding functionality for Hyperliquid API actions.
+
+  This module contains various functions to encode structured data for different
+  Hyperliquid API actions. It supports encoding of orders, cancellations, modifications,
+  and various other action types.
+
+  ## Key Features
+
+  - Encodes different action types (order, cancel, modify, etc.)
+  - Packs structured data for API requests
+  - Supports various field encodings
+  - Handles special cases like triggers and transfers
+  - Provides utilities for binary data manipulation
+
+  ## Usage
+
+  Most functions in this module are intended for internal use within the Hyperliquid
+  API client. However, you may use some of the public functions if you need to
+  manually encode data for custom API interactions. Refer to the Signer module.
+
+  Example:
+
+      iex> action = %{type: "order", orders: [...], grouping: "na"}
+      iex> nonce = 12345
+      iex> vault_address = "0x1234..."
+      iex> Hyperliquid.Encoder.pack_action(action, nonce, vault_address)
+
+  Note: Ensure you understand the Hyperliquid API specifications when using
+  these encoding functions directly.
   """
   alias Hyperliquid.Utils
   import Msgpax

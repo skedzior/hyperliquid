@@ -1,6 +1,28 @@
 defmodule Hyperliquid.Orders.PriceConverter do
   @moduledoc """
-  helper methods for converting prices to the proper significant figs
+  Provides helper methods for converting prices to the proper significant figures and decimal places.
+
+  This module offers functionality to convert prices for both perpetual (perp) and spot markets
+  in the Hyperliquid system. It ensures that prices are formatted correctly with the appropriate
+  number of significant figures and decimal places based on the market type.
+
+  Key features:
+  - Converts prices for both perpetual and spot markets
+  - Handles input as strings, floats, or integers
+  - Rounds to 5 significant figures for both market types
+  - Limits decimal places to 6 for perpetual markets and 8 for spot markets
+  - Provides error handling for invalid inputs or conversion failures
+
+  Usage:
+  The main function `convert_price/2` takes a price value and an optional market type
+  (defaulting to `:perp`). It returns either `{:ok, formatted_price}` or `{:error, reason}`.
+
+  Example:
+      iex> Hyperliquid.Orders.PriceConverter.convert_price(1234.56789, :perp)
+      {:ok, "1234.57"}
+
+      iex> Hyperliquid.Orders.PriceConverter.convert_price("0.00012345", :spot)
+      {:ok, "0.00012345"}
   """
   def convert_price(price, type \\ :perp)
   def convert_price(price, type) when type in [:perp, :spot] do

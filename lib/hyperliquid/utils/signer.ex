@@ -1,6 +1,17 @@
 defmodule Hyperliquid.Signer do
   @moduledoc """
-  signing and payload construction methods
+  Hyperliquid.Signer provides methods for signing and constructing payloads for various
+  Hyperliquid operations.
+
+  This module includes functions for:
+  - Generating action hashes
+  - Constructing phantom agents
+  - Signing L1 actions
+  - Signing user-signed actions (e.g., spot transfers, USD transfers, withdrawals)
+  - Signing agent approvals
+
+  It uses EIP-712 for structured data signing and provides utilities for handling
+  signatures and preparing data for signing.
   """
   require Logger
   alias Hyperliquid.Encoder
@@ -156,7 +167,26 @@ defmodule Hyperliquid.Signer do
     )
   end
 
-  # Signs the structured data
+  @doc """
+  Splits a hexadecimal signature into its components.
+
+  ## Parameters
+
+  - `hex_signature`: The hexadecimal signature to split
+
+  ## Returns
+
+  A map containing the signature components (r, s, v).
+
+  ## Example
+
+      iex> Hyperliquid.Signer.split_sig("0x1234...")
+      %{r: "0x...", s: "0x...", v: 27}
+
+  ## Raises
+
+  Raises an `ArgumentError` if the signature length is invalid or if the v value is unexpected.
+  """
   def split_sig(hex_signature) do
     hex_signature = trim_0x(hex_signature)
 

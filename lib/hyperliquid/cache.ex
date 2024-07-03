@@ -1,6 +1,19 @@
 defmodule Hyperliquid.Cache do
   @moduledoc """
-  application cache for storing asset lists and exchange meta information
+  Application cache for storing asset lists and exchange meta information.
+
+  This module provides functions to initialize and manage a cache for Hyperliquid-related data,
+  including asset information, exchange metadata, and utility functions for retrieving and
+  manipulating cached data.
+
+  The cache is implemented using Cachex and stores various pieces of information such as:
+  - Exchange metadata
+  - Spot market metadata
+  - Asset mappings
+  - Decimal precision information
+  - Token information
+
+  It also provides utility functions for working with assets, tokens, and other cached data.
   """
   alias __MODULE__
   alias Hyperliquid.Api.Info
@@ -57,7 +70,24 @@ defmodule Hyperliquid.Cache do
     |> Enum.into(%{})
   end
 
-  ###### Utils ######
+  ###### Helpers ######
+
+  @doc """
+  Retrieves the asset index for a given coin symbol.
+
+  ## Parameters
+
+  - `coin`: The coin symbol (e.g., "BTC", "ETH")
+
+  ## Returns
+
+  The asset index corresponding to the given coin symbol, or nil if not found.
+
+  ## Example
+
+      iex> Hyperliquid.Cache.asset_from_coin("SOL")
+      5
+  """
   def asset_from_coin(coin), do: Cache.get(:asset_map)[coin]
   def decimals_from_coin(coin), do: Cache.get(:decimal_map)[coin]
 

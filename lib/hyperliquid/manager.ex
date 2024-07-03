@@ -1,6 +1,34 @@
 defmodule Hyperliquid.Manager do
   @moduledoc """
-  application manager mostly responsible for handling ws clients
+  Application manager responsible for handling WebSocket clients and subscriptions.
+
+  This module provides functionality to manage WebSocket connections, user subscriptions,
+  and stream workers in the Hyperliquid application. It acts as a central point for
+  managing the state of active connections and subscriptions.
+
+  ## Key Features
+
+  - Initializes the application cache and starts initial streams
+  - Manages user and non-user subscriptions
+  - Provides utilities to start and stop stream workers
+  - Handles automatic user subscription initialization
+  - Offers functions to query the current state of subscriptions and workers
+
+  ## Usage
+
+  This module is typically used to manage WebSocket connections and subscriptions,
+  as well as to query the current state of workers.
+
+  Example:
+
+      # Get all active subscriptions
+      Hyperliquid.Manager.get_all_active_subs()
+
+      # Start a new stream for a specific subscription
+      Hyperliquid.Manager.maybe_start_stream(%{type: "allMids"})
+
+      # Automatically start subscriptions for a user
+      Hyperliquid.Manager.auto_start_user("0x1234...")
   """
   use GenServer
   require Logger

@@ -1,6 +1,38 @@
 defmodule Hyperliquid.Streamer.Stream do
   @moduledoc """
-  ws client
+  WebSocket client for streaming data from the Hyperliquid API.
+
+  This module implements a WebSocket client that connects to the Hyperliquid API,
+  manages subscriptions, and processes incoming data. It handles connection
+  management, subscription requests, heartbeats, and message processing.
+
+  ## Key Features
+
+  - Establishes and maintains WebSocket connections
+  - Manages user and non-user subscriptions
+  - Handles heartbeats and connection timeouts
+  - Processes and broadcasts incoming messages
+  - Supports dynamic subscription management
+
+  ## Usage
+
+  This module is used to subscribe to ws events and can also support post requests.
+  Typically this module shouldn't be called directly, as it is meant to be managed by the
+  Manager, errors may occur when used outside that context.
+
+  To subscribe to the broadcasts of ws events, you can refer to the subscription `type` for the
+  channel value to subscribe to in your own application.
+
+  Example:
+
+      # Start a new stream with initial subscriptions
+      {:ok, pid} = Hyperliquid.Streamer.Stream.start_link([%{type: "allMids"}])
+
+      # Add a new subscription
+      Hyperliquid.Streamer.Stream.subscribe(pid, %{type: "trades", coin: "BTC"})
+
+      # Remove a subscription
+      Hyperliquid.Streamer.Stream.unsubscribe(pid, %{type: "trades", coin: "BTC"})
   """
   use WebSockex
   require Logger

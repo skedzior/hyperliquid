@@ -1,6 +1,38 @@
 defmodule Hyperliquid.Orders do
   @moduledoc """
-  helper methods for order creation
+  Provides helper methods for order creation and management.
+
+  This module offers a set of functions to facilitate various order operations, including:
+  - Retrieving and calculating mid-prices
+  - Creating market and limit orders
+  - Handling order types and triggers
+  - Managing position closures
+
+  Key features:
+  - Mid-price retrieval with caching mechanism
+  - Slippage price calculation for market orders
+  - Support for various order types (GTC, IOC, ALO)
+  - Market buy and sell order creation
+  - Limit order creation with customizable time-in-force
+  - Position closing functionality
+
+  The module interacts with the Hyperliquid API and cache to ensure efficient
+  and accurate order processing. It handles both perpetual and spot markets,
+  and provides flexibility in order parameters such as size, price, and slippage.
+
+  Usage examples:
+
+    # Retrieve mid-price for a coin
+    mid_price = Hyperliquid.Orders.get_midprice("BTC")
+
+    # Place a market buy order
+    Hyperliquid.Orders.market_buy("ETH", 1.0, "0x123...")
+
+    # Place a limit sell order
+    Hyperliquid.Orders.limit_order("BTC", 0.5, false, 50000, "gtc", false, "0x123...")
+
+    # Close all positions for an address
+    Hyperliquid.Orders.market_close("0x123...")
   """
 
   alias Hyperliquid.Api.{Info, Exchange}

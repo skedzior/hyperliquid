@@ -1,9 +1,77 @@
 defmodule Hyperliquid.Api.Exchange do
   @moduledoc """
-  exchange endpoints
+  Module for interacting with the Hyperliquid Exchange API endpoints.
+
+  This module provides functions to perform various operations on the Hyperliquid exchange,
+  including placing and canceling orders, modifying orders, updating leverage, transferring
+  funds, and managing sub-accounts.
+
+  It uses the `Hyperliquid.Api` macro to set up the basic API interaction functionality.
+
+  ## Asset Representation
+
+  In this module, assets are represented by integers corresponding to their index in the coin list.
+  For example, if BTC is the first asset in the list, it would be represented by 0, ETH might be 1, etc.
+
+  ## Usage
+
+  You can use this module to interact with the Hyperliquid Exchange:
+
+      Hyperliquid.Api.Exchange.place_order(%{asset: 1, is_buy: true, limit_px: 50000, sz: 1})
+      Hyperliquid.Api.Exchange.cancel_order(1, order_id)
+      Hyperliquid.Api.Exchange.update_leverage(1, true, 10)
+
+  ## Functions
+
+  ### Order Management
+  - `place_order/1`, `place_order/2`, `place_order/3` - Place one or multiple orders
+  - `cancel_orders/1`, `cancel_orders/2` - Cancel multiple orders
+  - `cancel_order/2`, `cancel_order/3` - Cancel a single order
+  - `cancel_order_by_cloid/2`, `cancel_order_by_cloid/3` - Cancel an order by client order ID
+  - `cancel_orders_by_cloid/1`, `cancel_orders_by_cloid/2` - Cancel multiple orders by client order IDs
+  - `modify_order/2`, `modify_order/3` - Modify an existing order
+  - `modify_multiple_orders/1`, `modify_multiple_orders/2` - Modify multiple orders
+
+  ### Account Management
+  - `update_leverage/3` - Update leverage for an asset
+  - `update_isolated_margin/3` - Update isolated margin for an asset
+  - `spot_perp_transfer/2` - Transfer between spot and perpetual accounts
+  - `vault_transfer/3` - Transfer to/from a vault
+  - `create_sub_account/1` - Create a sub-account
+  - `sub_account_transfer/3` - Transfer funds to/from a sub-account
+  - `sub_account_spot_transfer/4` - Transfer spot tokens to/from a sub-account
+
+  ### Withdrawal and Transfers
+  - `usd_send/3` - Send USD to another address
+  - `spot_send/4` - Send spot tokens to another address
+  - `withdraw_from_bridge/3` - Withdraw funds from the bridge
+
+  All functions return a tuple `{:ok, result}` on success, or `{:error, details}` on failure.
   """
   use Hyperliquid.Api, context: "exchange"
 
+  @doc """
+  Places one or multiple orders.
+
+  ## Parameters
+
+  - `order`: A single order or a list of orders
+  - `grouping`: Order grouping (default: "na")
+  - `vault_address`: Optional vault address
+
+  ## Returns
+
+  `{:ok, result}` on success, where `result` contains the response from the API.
+  `{:error, details}` on failure.
+
+  ## Examples
+
+      iex> Hyperliquid.Api.Exchange.place_order(%{asset: "BTC", is_buy: true, limit_px: 50000, sz: 1})
+      {:ok, %{...}}
+
+      iex> Hyperliquid.Api.Exchange.place_order([%{asset: "BTC", is_buy: true, limit_px: 50000, sz: 1}, %{asset: "ETH", is_buy: false, limit_px: 3000, sz: 10}])
+      {:ok, %{...}}
+  """
   def place_order(order), do: place_order(order, "na", nil)
   def place_order(order, grouping \\ "na", vault_address \\ nil)
 
@@ -15,14 +83,70 @@ defmodule Hyperliquid.Api.Exchange do
     post_action(%{type: "order", grouping: grouping, orders: [order]}, vault_address)
   end
 
+  @doc """
+  Cancels multiple orders.
+
+  ## Parameters
+
+  - `cancels`: List of orders to cancel
+  - `vault_address`: Optional vault address
+
+  ## Returns
+
+  `{:ok, result}` on success, where `result` contains the response from the API.
+  `{:error, details}` on failure.
+
+  ## Example
+
+      iex> Hyperliquid.Api.Exchange.cancel_orders([%{a: 5, o: 123}, %{a: "ETH", o: 456}])
+      {:ok, %{...}}
+  """
   def cancel_orders([_|_] = cancels, vault_address \\ nil) do
     post_action(%{type: "cancel", cancels: cancels}, vault_address)
   end
 
+  @doc """
+  Cancels a single order.
+
+  ## Parameters
+
+  - `asset`: Integer representing the asset's index in the coin list
+  - `oid`: The order ID to cancel
+  - `vault_address`: Optional vault address
+
+  ## Returns
+
+  `{:ok, result}` on success, where `result` contains the response from the API.
+  `{:error, details}` on failure.
+
+  ## Example
+
+      iex> Hyperliquid.Api.Exchange.cancel_order(5, 123)
+      {:ok, %{...}}
+  """
   def cancel_order(asset, oid, vault_address \\ nil) do
     post_action(%{type: "cancel", cancels: [%{a: asset, o: oid}]}, vault_address)
   end
 
+  @doc """
+  Cancels order by cloid.
+
+  ## Parameters
+
+  - `asset`: Integer representing the asset's index in the coin list
+  - `cloid`: The cloid to cancel
+  - `vault_address`: Optional vault address
+
+  ## Returns
+
+  `{:ok, result}` on success, where `result` contains the response from the API.
+  `{:error, details}` on failure.
+
+  ## Example
+
+      iex> Hyperliquid.Api.Exchange.cancel_order_by_cloid(5, "0x123")
+      {:ok, %{...}}
+  """
   def cancel_order_by_cloid(asset, cloid, vault_address \\ nil) do
     post_action(%{type: "cancelByCloid", cancels: [%{asset: asset, cloid: cloid}]}, vault_address)
   end
@@ -31,6 +155,25 @@ defmodule Hyperliquid.Api.Exchange do
     post_action(%{type: "cancelByCloid", cancels: cancels}, vault_address)
   end
 
+  @doc """
+  Modifies an existing order.
+
+  ## Parameters
+
+  - `oid`: The order ID to modify
+  - `order`: A map containing the new order details
+  - `vault_address`: Optional vault address
+
+  ## Returns
+
+  `{:ok, result}` on success, where `result` contains the response from the API.
+  `{:error, details}` on failure.
+
+  ## Example
+
+      iex> Hyperliquid.Api.Exchange.modify_order(123, order)
+      {:ok, %{...}}
+  """
   def modify_order(oid, order, vault_address \\ nil) do
     post_action(%{type: "modify", oid: oid, order: order}, vault_address)
   end
@@ -39,6 +182,25 @@ defmodule Hyperliquid.Api.Exchange do
     post_action(%{type: "batchModify", modifies: modifies}, vault_address)
   end
 
+  @doc """
+  Updates the leverage for a specific asset.
+
+  ## Parameters
+
+  - `asset`: Integer representing the asset's index in the coin list
+  - `is_cross`: Boolean indicating whether to use cross margin
+  - `leverage`: The new leverage value
+
+  ## Returns
+
+  `{:ok, result}` on success, where `result` contains the response from the API.
+  `{:error, details}` on failure.
+
+  ## Example
+
+      iex> Hyperliquid.Api.Exchange.update_leverage(1, true, 10)
+      {:ok, %{...}}
+  """
   def update_leverage(asset, is_cross, leverage) do
     post_action(%{
       type: "updateLeverage",
@@ -48,6 +210,25 @@ defmodule Hyperliquid.Api.Exchange do
     })
   end
 
+  @doc """
+  Updates the isolated margin for a specific asset.
+
+  ## Parameters
+
+  - `asset`: Integer representing the asset's index in the coin list
+  - `is_buy`: Boolean indicating whether it's a buy position
+  - `ntli`: The new notional total liability increase
+
+  ## Returns
+
+  `{:ok, result}` on success, where `result` contains the response from the API.
+  `{:error, details}` on failure.
+
+  ## Example
+
+      iex> Hyperliquid.Api.Exchange.update_isolated_margin(1, true, 1000)
+      {:ok, %{...}}
+  """
   def update_isolated_margin(asset, is_buy, ntli) do
     post_action(%{
       type: "updateIsolatedMargin",
@@ -57,6 +238,24 @@ defmodule Hyperliquid.Api.Exchange do
     })
   end
 
+  @doc """
+  Transfers funds between spot and perpetual accounts.
+
+  ## Parameters
+
+  - `amount`: The amount to transfer (in USDC)
+  - `to_perp`: Boolean indicating the direction of transfer (true for spot to perp, false for perp to spot)
+
+  ## Returns
+
+  `{:ok, result}` on success, where `result` contains the response from the API.
+  `{:error, details}` on failure.
+
+  ## Example
+
+      iex> Hyperliquid.Api.Exchange.spot_perp_transfer(1000, true)
+      {:ok, %{...}}
+  """
   def spot_perp_transfer(amount, to_perp) do
     post_action(%{
       type: "spotUser",
@@ -67,6 +266,25 @@ defmodule Hyperliquid.Api.Exchange do
     })
   end
 
+  @doc """
+  Transfers funds to or from a vault.
+
+  ## Parameters
+
+  - `vault_address`: The address of the vault
+  - `is_deposit`: Boolean indicating whether it's a deposit (true) or withdrawal (false)
+  - `amount_usd`: The amount to transfer in USD (positive for transfer, negative for withdraw)
+
+  ## Returns
+
+  `{:ok, result}` on success, where `result` contains the response from the API.
+  `{:error, details}` on failure.
+
+  ## Example
+
+      iex> Hyperliquid.Api.Exchange.vault_transfer("0x1234...", true, 1000)
+      {:ok, %{...}}
+  """
   def vault_transfer(vault_address, is_deposit, amount_usd) do
     post_action(%{
       type: "vaultTransfer",
@@ -74,9 +292,25 @@ defmodule Hyperliquid.Api.Exchange do
       isDeposit: is_deposit,
       usd: amount_usd
     })
-    # positive usd = transfer, negative = withdraw
   end
 
+  @doc """
+  Creates a new sub-account.
+
+  ## Parameters
+
+  - `name`: The name for the new sub-account
+
+  ## Returns
+
+  `{:ok, result}` on success, where `result` contains the response from the API.
+  `{:error, details}` on failure.
+
+  ## Example
+
+      iex> Hyperliquid.Api.Exchange.create_sub_account("trading_bot_1")
+      {:ok, %{...}}
+  """
   def create_sub_account(name) do
     post_action(%{
       type: "createSubAccount",
@@ -84,6 +318,25 @@ defmodule Hyperliquid.Api.Exchange do
     })
   end
 
+  @doc """
+  Transfers funds to or from a sub-account.
+
+  ## Parameters
+
+  - `user`: The address or identifier of the sub-account
+  - `is_deposit`: Boolean indicating whether it's a deposit (true) or withdrawal (false)
+  - `amount_usd`: The amount to transfer in USD cents (e.g., 1_000_000 = $1)
+
+  ## Returns
+
+  `{:ok, result}` on success, where `result` contains the response from the API.
+  `{:error, details}` on failure.
+
+  ## Example
+
+      iex> Hyperliquid.Api.Exchange.sub_account_transfer("0x5678...", true, 1_000_000)
+      {:ok, %{...}}
+  """
   def sub_account_transfer(user, is_deposit, amount_usd) do
     post_action(%{
       type: "subAccountTransfer",
@@ -93,6 +346,26 @@ defmodule Hyperliquid.Api.Exchange do
     })
   end
 
+  @doc """
+  Transfers spot tokens to or from a sub-account.
+
+  ## Parameters
+
+  - `user`: The address or identifier of the sub-account
+  - `is_deposit`: Boolean indicating whether it's a deposit (true) or withdrawal (false)
+  - `token`: The token to transfer (e.g., "BTC", "ETH")
+  - `amount`: The amount of the token to transfer
+
+  ## Returns
+
+  `{:ok, result}` on success, where `result` contains the response from the API.
+  `{:error, details}` on failure.
+
+  ## Example
+
+      iex> Hyperliquid.Api.Exchange.sub_account_spot_transfer("0x9876...", true, "BTC", 0.1)
+      {:ok, %{...}}
+  """
   def sub_account_spot_transfer(user, is_deposit, token, amount) do
     post_action(%{
       type: "subAccountSpotTransfer",
@@ -130,6 +403,25 @@ defmodule Hyperliquid.Api.Exchange do
     }, nil, time)
   end
 
+  @doc """
+  Withdraws funds from the bridge.
+
+  ## Parameters
+
+  - `destination`: The destination address
+  - `amount`: The amount to withdraw
+  - `time`: The timestamp for the withdrawal
+
+  ## Returns
+
+  `{:ok, result}` on success, where `result` contains the response from the API.
+  `{:error, details}` on failure.
+
+  ## Example
+
+      iex> Hyperliquid.Api.Exchange.withdraw_from_bridge("0x1234...", 1000000, 1625097600)
+      {:ok, %{...}}
+  """
   def withdraw_from_bridge(destination, amount, time) do
     post_action(%{
       type: "withdraw3",

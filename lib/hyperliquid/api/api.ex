@@ -23,28 +23,27 @@ defmodule Hyperliquid.Api do
   - `:private_key` - The private key used for signing requests
 
   """
+  alias Hyperliquid.Config
+
   defmacro __using__(opts) do
     quote do
       import Hyperliquid.{Api, Utils}
       alias Hyperliquid.Signer
 
       @context unquote(Keyword.get(opts, :context, ""))
-
-      @api_base Application.compile_env(:hyperliquid, :http_url)
-      @is_mainnet Application.compile_env(:hyperliquid, :is_mainnet)
-      @secret Application.compile_env(:hyperliquid, :private_key)
-
       @headers [{"Content-Type", "application/json"}]
 
-      def mainnet?, do: @is_mainnet
-      def endpoint, do: "#{@api_base}/#{@context}"
+      def api_base, do: Config.api_base()
+      def mainnet?, do: Config.mainnet?()
+      def endpoint, do: "#{api_base()}/#{@context}"
+      def secret, do: Config.secret()
 
-      def post_action(action), do: post_action(action, nil, get_timestamp(), @secret)
-      def post_action(action, vault_address), do: post_action(action, vault_address, get_timestamp(), @secret)
-      def post_action(action, vault_address, nonce), do: post_action(action, vault_address, nonce, @secret)
+      def post_action(action), do: post_action(action, nil, get_timestamp(), secret())
+      def post_action(action, vault_address), do: post_action(action, vault_address, get_timestamp(), secret())
+      def post_action(action, vault_address, nonce), do: post_action(action, vault_address, nonce, secret())
 
       def post_action(%{type: "usdSend"} = action, nil, nonce, secret) do
-        signature = Signer.sign_usd_transfer_action(action, @is_mainnet, secret)
+        signature = Signer.sign_usd_transfer_action(action, mainnet?(), secret)
         payload = %{
           action: action,
           nonce: nonce,
@@ -56,7 +55,7 @@ defmodule Hyperliquid.Api do
       end
 
       def post_action(%{type: "spotSend"} = action, nil, nonce, secret) do
-        signature = Signer.sign_spot_transfer_action(action, @is_mainnet, secret)
+        signature = Signer.sign_spot_transfer_action(action, mainnet?(), secret)
         payload = %{
           action: action,
           nonce: nonce,
@@ -68,7 +67,7 @@ defmodule Hyperliquid.Api do
       end
 
       def post_action(%{type: "withdraw3"} = action, nil, nonce, secret) do
-        signature = Signer.sign_withdraw_from_bridge_action(action, @is_mainnet, secret)
+        signature = Signer.sign_withdraw_from_bridge_action(action, mainnet?(), secret)
         payload = %{
           action: action,
           nonce: nonce,
@@ -80,7 +79,7 @@ defmodule Hyperliquid.Api do
       end
 
       def post_action(action, vault_address, nonce, secret) do
-        signature = Signer.sign_l1_action(action, vault_address, nonce, @is_mainnet, secret)
+        signature = Signer.sign_l1_action(action, vault_address, nonce, mainnet?(), secret)
         payload = %{
           action: action,
           nonce: nonce,

@@ -25,8 +25,8 @@ defmodule Hyperliquid.Api do
   """
   defmacro __using__(opts) do
     quote do
-      import Hyperliquid.{Api, Config, Utils}
-      alias Hyperliquid.Signer
+      import Hyperliquid.{Api, Utils}
+      alias Hyperliquid.{Config, Signer}
 
       @context unquote(Keyword.get(opts, :context, ""))
       @headers [{"Content-Type", "application/json"}]

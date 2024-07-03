@@ -40,7 +40,7 @@ defmodule Hyperliquid.Streamer.Stream do
   import Hyperliquid.Utils
   alias Hyperliquid.{Api.Subscription, Cache, Config}
 
-  @heartbeat_interval 55_000
+  @heartbeat_interval 50_000
   @timeout_seconds 60
 
   @workers :worker_registry
@@ -146,20 +146,22 @@ defmodule Hyperliquid.Streamer.Stream do
 
     new_state =
       case event.channel do
-        "subscriptionResponse" -> update_active_subs(event, state)
-        "post" -> state
-        _ -> state
+        "subscriptionResponse" ->
+          update_active_subs(event, state)
+
+        "allMids" ->
+          Cache.put(:all_mids, event.data.mids)
+          state
+
+        _ ->
+          state
       end
       |> Map.merge(%{
         last_response: System.system_time(:second),
         req_count: req_count + 1
       })
 
-    if event.channel == "allMids" do
-      Cache.put(:all_mids, event.data.mids)
-    end
-
-    broadcast(event.channel, event)
+    unless is_nil(event.channel), do: broadcast(event.channel, event)
 
     Registry.update_value(@workers, id, fn _ -> new_state end)
 
@@ -238,7 +240,7 @@ defmodule Hyperliquid.Streamer.Stream do
     }
   end
 
-  def process_event([%{height: block} = exp_block | _] = msg) do
+  def process_event([%{height: _} | _] = msg) do
     %{
       channel: "explorerBlock",
       subject: :block,

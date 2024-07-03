@@ -117,4 +117,20 @@ defmodule Hyperliquid.Api.Info do
   def vaults(user_address) do
     post(%{type: "vaults", user: user_address})
   end
+
+  def user_twap_slice_fills(user_address) do
+    post(%{type: "userTwapSliceFills", user: user_address})
+  end
+
+  def user_web_data(user_address) do
+    post(%{type: "webData2", user: user_address})
+  end
+
+  def user_non_funding_ledger_updates(user_address) do
+    post(%{type: "userNonFundingLedgerUpdates", user: user_address})
+  end
+
+  def user_fills(user_address) do
+    post(%{type: "userFills", user: user_address})
+  end
 end

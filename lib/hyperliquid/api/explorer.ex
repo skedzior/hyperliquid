@@ -33,11 +33,6 @@ defmodule Hyperliquid.Api.Explorer do
 
   - `block`: The block height to query
 
-  ## Returns
-
-  `{:ok, result}` on success, where `result` is a map containing the block details.
-  `{:error, details}` on failure.
-
   ## Example
 
       iex> Hyperliquid.Api.Explorer.block_details(12345)
@@ -73,11 +68,6 @@ defmodule Hyperliquid.Api.Explorer do
 
   - `hash`: The transaction hash to query
 
-  ## Returns
-
-  `{:ok, result}` on success, where `result` is a map containing the transaction details.
-  `{:error, details}` on failure.
-
   ## Example
 
       iex> Hyperliquid.Api.Explorer.tx_details("0xf94afe652b34cc43d688040cb9571100001ca826f770b3adb1358e2c82d59be8")
@@ -106,11 +96,6 @@ defmodule Hyperliquid.Api.Explorer do
   ## Parameters
 
   - `user_address`: The user address to query
-
-  ## Returns
-
-  `{:ok, result}` on success, where `result` is a map containing the user details.
-  `{:error, details}` on failure.
 
   ## Example
 

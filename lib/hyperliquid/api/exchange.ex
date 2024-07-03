@@ -8,19 +8,6 @@ defmodule Hyperliquid.Api.Exchange do
 
   It uses the `Hyperliquid.Api` macro to set up the basic API interaction functionality.
 
-  ## Asset Representation
-
-  In this module, assets are represented by integers corresponding to their index in the coin list.
-  For example, if BTC is the first asset in the list, it would be represented by 0, ETH might be 1, etc.
-
-  ## Usage
-
-  You can use this module to interact with the Hyperliquid Exchange:
-
-      Hyperliquid.Api.Exchange.place_order(%{asset: 1, is_buy: true, limit_px: 50000, sz: 1})
-      Hyperliquid.Api.Exchange.cancel_order(1, order_id)
-      Hyperliquid.Api.Exchange.update_leverage(1, true, 10)
-
   ## Functions
 
   ### Order Management
@@ -59,17 +46,12 @@ defmodule Hyperliquid.Api.Exchange do
   - `grouping`: Order grouping (default: "na")
   - `vault_address`: Optional vault address
 
-  ## Returns
-
-  `{:ok, result}` on success, where `result` contains the response from the API.
-  `{:error, details}` on failure.
-
   ## Examples
 
-      iex> Hyperliquid.Api.Exchange.place_order(%{asset: "BTC", is_buy: true, limit_px: 50000, sz: 1})
+      iex> Hyperliquid.Api.Exchange.place_order(order)
       {:ok, %{...}}
 
-      iex> Hyperliquid.Api.Exchange.place_order([%{asset: "BTC", is_buy: true, limit_px: 50000, sz: 1}, %{asset: "ETH", is_buy: false, limit_px: 3000, sz: 10}])
+      iex> Hyperliquid.Api.Exchange.place_order(orders)
       {:ok, %{...}}
   """
   def place_order(order), do: place_order(order, "na", nil)
@@ -91,14 +73,9 @@ defmodule Hyperliquid.Api.Exchange do
   - `cancels`: List of orders to cancel
   - `vault_address`: Optional vault address
 
-  ## Returns
-
-  `{:ok, result}` on success, where `result` contains the response from the API.
-  `{:error, details}` on failure.
-
   ## Example
 
-      iex> Hyperliquid.Api.Exchange.cancel_orders([%{a: 5, o: 123}, %{a: "ETH", o: 456}])
+      iex> Hyperliquid.Api.Exchange.cancel_orders([%{a: 5, o: 123}, %{a: 5, o: 456}])
       {:ok, %{...}}
   """
   def cancel_orders([_|_] = cancels, vault_address \\ nil) do
@@ -113,11 +90,6 @@ defmodule Hyperliquid.Api.Exchange do
   - `asset`: Integer representing the asset's index in the coin list
   - `oid`: The order ID to cancel
   - `vault_address`: Optional vault address
-
-  ## Returns
-
-  `{:ok, result}` on success, where `result` contains the response from the API.
-  `{:error, details}` on failure.
 
   ## Example
 
@@ -136,11 +108,6 @@ defmodule Hyperliquid.Api.Exchange do
   - `asset`: Integer representing the asset's index in the coin list
   - `cloid`: The cloid to cancel
   - `vault_address`: Optional vault address
-
-  ## Returns
-
-  `{:ok, result}` on success, where `result` contains the response from the API.
-  `{:error, details}` on failure.
 
   ## Example
 
@@ -164,11 +131,6 @@ defmodule Hyperliquid.Api.Exchange do
   - `order`: A map containing the new order details
   - `vault_address`: Optional vault address
 
-  ## Returns
-
-  `{:ok, result}` on success, where `result` contains the response from the API.
-  `{:error, details}` on failure.
-
   ## Example
 
       iex> Hyperliquid.Api.Exchange.modify_order(123, order)
@@ -190,11 +152,6 @@ defmodule Hyperliquid.Api.Exchange do
   - `asset`: Integer representing the asset's index in the coin list
   - `is_cross`: Boolean indicating whether to use cross margin
   - `leverage`: The new leverage value
-
-  ## Returns
-
-  `{:ok, result}` on success, where `result` contains the response from the API.
-  `{:error, details}` on failure.
 
   ## Example
 
@@ -219,11 +176,6 @@ defmodule Hyperliquid.Api.Exchange do
   - `is_buy`: Boolean indicating whether it's a buy position
   - `ntli`: The new notional total liability increase
 
-  ## Returns
-
-  `{:ok, result}` on success, where `result` contains the response from the API.
-  `{:error, details}` on failure.
-
   ## Example
 
       iex> Hyperliquid.Api.Exchange.update_isolated_margin(1, true, 1000)
@@ -245,11 +197,6 @@ defmodule Hyperliquid.Api.Exchange do
 
   - `amount`: The amount to transfer (in USDC)
   - `to_perp`: Boolean indicating the direction of transfer (true for spot to perp, false for perp to spot)
-
-  ## Returns
-
-  `{:ok, result}` on success, where `result` contains the response from the API.
-  `{:error, details}` on failure.
 
   ## Example
 
@@ -275,11 +222,6 @@ defmodule Hyperliquid.Api.Exchange do
   - `is_deposit`: Boolean indicating whether it's a deposit (true) or withdrawal (false)
   - `amount_usd`: The amount to transfer in USD (positive for transfer, negative for withdraw)
 
-  ## Returns
-
-  `{:ok, result}` on success, where `result` contains the response from the API.
-  `{:error, details}` on failure.
-
   ## Example
 
       iex> Hyperliquid.Api.Exchange.vault_transfer("0x1234...", true, 1000)
@@ -301,11 +243,6 @@ defmodule Hyperliquid.Api.Exchange do
 
   - `name`: The name for the new sub-account
 
-  ## Returns
-
-  `{:ok, result}` on success, where `result` contains the response from the API.
-  `{:error, details}` on failure.
-
   ## Example
 
       iex> Hyperliquid.Api.Exchange.create_sub_account("trading_bot_1")
@@ -326,11 +263,6 @@ defmodule Hyperliquid.Api.Exchange do
   - `user`: The address or identifier of the sub-account
   - `is_deposit`: Boolean indicating whether it's a deposit (true) or withdrawal (false)
   - `amount_usd`: The amount to transfer in USD cents (e.g., 1_000_000 = $1)
-
-  ## Returns
-
-  `{:ok, result}` on success, where `result` contains the response from the API.
-  `{:error, details}` on failure.
 
   ## Example
 
@@ -355,11 +287,6 @@ defmodule Hyperliquid.Api.Exchange do
   - `is_deposit`: Boolean indicating whether it's a deposit (true) or withdrawal (false)
   - `token`: The token to transfer (e.g., "BTC", "ETH")
   - `amount`: The amount of the token to transfer
-
-  ## Returns
-
-  `{:ok, result}` on success, where `result` contains the response from the API.
-  `{:error, details}` on failure.
 
   ## Example
 

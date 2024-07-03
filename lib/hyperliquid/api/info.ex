@@ -1,6 +1,6 @@
 defmodule Hyperliquid.Api.Info do
   @moduledoc """
-  info endpoints
+  Info endpoints.
   """
   use Hyperliquid.Api, context: "info"
 

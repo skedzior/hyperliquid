@@ -1,6 +1,6 @@
 defmodule Hyperliquid.Api.Subscription do
   @moduledoc """
-  subscriptions and related helper methods
+  Subscriptions and related helper methods.
   """
   alias Hyperliquid.Utils
 

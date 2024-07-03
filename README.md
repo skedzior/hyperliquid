@@ -23,6 +23,15 @@ def deps do
 end
 ```
 
+## Configuration
+
+In `config/config.exs`, add Hyperliquid protocol host params to your config file
+
+```elixir
+config :hyperliquid,
+  private_key: "YOUR_KEY_HERE"
+```
+
 ## Usage
 
 ### Streaming Data

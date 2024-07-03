@@ -16,7 +16,7 @@ defmodule Hyperliquid.Cache do
   It also provides utility functions for working with assets, tokens, and other cached data.
   """
   alias __MODULE__
-  alias Hyperliquid.Api.Info
+  alias Hyperliquid.{Api.Info, Utils}
 
   @cache :hyperliquid
 
@@ -26,8 +26,9 @@ defmodule Hyperliquid.Cache do
   def init do
     {:ok, meta} = Info.meta()
     {:ok, spot_meta} = Info.spot_meta()
+    {:ok, mids} = Info.all_mids()
 
-    all_mids = Info.all_mids() |> elem(1) |> Hyperliquid.Atomizer.atomize_keys()
+    all_mids = Utils.atomize_keys(mids)
     tokens = Map.get(spot_meta, "tokens")
 
     asset_map = Map.merge(

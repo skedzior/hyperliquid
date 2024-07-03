@@ -30,9 +30,9 @@ defmodule Hyperliquid.Api do
 
       @context unquote(Keyword.get(opts, :context, ""))
 
-      @api_base Application.get_env(:hyperliquid, :http_url)
-      @is_mainnet Application.get_env(:hyperliquid, :is_mainnet)
-      @secret Application.get_env(:hyperliquid, :private_key)
+      @api_base Application.compile_env(:hyperliquid, :http_url)
+      @is_mainnet Application.compile_env(:hyperliquid, :is_mainnet)
+      @secret Application.compile_env(:hyperliquid, :private_key)
 
       @headers [{"Content-Type", "application/json"}]
 

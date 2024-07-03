@@ -18,7 +18,7 @@ Add `hyperliquid` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:hyperliquid, "~> 0.1.0"}
+    {:hyperliquid, "~> 0.1.1"}
   ]
 end
 ```

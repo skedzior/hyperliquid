@@ -38,10 +38,8 @@ defmodule Hyperliquid.Streamer.Stream do
   require Logger
 
   import Hyperliquid.Utils
-  alias Hyperliquid.Api.Subscription
-  alias Hyperliquid.Cache
+  alias Hyperliquid.{Api.Subscription, Cache, Config}
 
-  @ws_url Application.get_env(:hyperliquid, :ws_url)
   @heartbeat_interval 55_000
   @timeout_seconds 60
 
@@ -61,9 +59,9 @@ defmodule Hyperliquid.Streamer.Stream do
     }
 
     WebSockex.start_link(
-      @ws_url,
+      Config.ws_url(),
       __MODULE__,
-      state, # debug: [:trace],
+      state,
       name: via(state)
     )
   end

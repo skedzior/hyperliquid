@@ -23,11 +23,9 @@ defmodule Hyperliquid.Api do
   - `:private_key` - The private key used for signing requests
 
   """
-  alias Hyperliquid.Config
-
   defmacro __using__(opts) do
     quote do
-      import Hyperliquid.{Api, Utils}
+      import Hyperliquid.{Api, Config, Utils}
       alias Hyperliquid.Signer
 
       @context unquote(Keyword.get(opts, :context, ""))

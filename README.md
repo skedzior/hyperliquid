@@ -23,6 +23,19 @@ def deps do
 end
 ```
 
+## Livebook
+
+To use in livebook, add the following to the notebook dependencies and setup section:
+
+```elixir
+Mix.install(
+  [{:hyperliquid, "~> 0.1.1"}],
+  config: [
+    hyperliquid: [private_key: "YOUR_KEY_HERE"]
+  ]
+)
+```
+
 ## Configuration
 
 In `config/config.exs`, add Hyperliquid protocol host params to your config file
@@ -48,19 +61,24 @@ To place a market buy order:
 ```elixir
 alias Hyperliquid.Orders
 
-Orders.market_buy("BTC", 1.0)
+Orders.market_buy("BTC", 1)
 ```
 
 To place a limit sell order:
 
 ```elixir
-Orders.limit_order("ETH", 2.0, false, 3000, "gtc", false)
+Orders.limit_order("ETH", 2, false, 3000, "gtc", false)
 ```
 
 ### Closing Positions
 To close all positions for an address:
 ```elixir
 Orders.market_close("0x1234...")
+```
+
+To close a single position:
+```elixir
+Orders.market_close(postion)
 ```
 
 ## License

@@ -34,7 +34,7 @@ defmodule Hyperliquid.Api do
       def api_base, do: Config.api_base()
       def mainnet?, do: Config.mainnet?()
       def endpoint, do: "#{api_base()}/#{@context}"
-      def secret, do: Config.secret()
+      defp secret, do: Config.secret()
 
       def post_action(action), do: post_action(action, nil, get_timestamp(), secret())
       def post_action(action, vault_address), do: post_action(action, vault_address, get_timestamp(), secret())

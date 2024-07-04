@@ -303,6 +303,13 @@ defmodule Hyperliquid.Api.Exchange do
     })
   end
 
+  def set_referrer(code) do
+    post_action(%{
+      type: "setReferrer",
+      code: code
+    })
+  end
+
   ####### non l1 actions with different signer ##########
 
   def usd_send(destination, amount, time) do

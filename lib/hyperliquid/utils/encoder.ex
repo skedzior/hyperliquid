@@ -44,6 +44,7 @@ defmodule Hyperliquid.Encoder do
     updateLeverage: pack!("updateLeverage"),
     updateIsolatedMargin: pack!("updateIsolatedMargin"),
     spotUser: pack!("spotUser"),
+    setReferrer: pack!("setReferrer"),
     vaultTransfer: pack!("vaultTransfer"),
     createSubAccount: pack!("createSubAccount"),
     subAccountTransfer: pack!("subAccountTransfer"),
@@ -89,7 +90,8 @@ defmodule Hyperliquid.Encoder do
     isCross: pack!("isCross"),
     leverage: pack!("leverage"),
     subAccountUser: pack!("subAccountUser"),
-    name: pack!("name")
+    name: pack!("name"),
+    code: pack!("code")
   }
 
   @grouping pack!("grouping")
@@ -155,6 +157,15 @@ defmodule Hyperliquid.Encoder do
       @class_transfer,
       first_byte(transfer),
       fields([:usdc, :toPerp], transfer)
+    ]
+  end
+
+  def pack_action(%{type: "setReferrer"} = action, nonce, vault_address) do
+    [
+      first_byte(action),
+      type(:setReferrer),
+      fields([:code], action),
+      add_additional_bytes(nonce, vault_address)
     ]
   end
 

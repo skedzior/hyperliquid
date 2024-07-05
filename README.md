@@ -18,7 +18,7 @@ Add `hyperliquid` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:hyperliquid, "~> 0.1.1"}
+    {:hyperliquid, "~> 0.1.2"}
   ]
 end
 ```
@@ -29,7 +29,7 @@ To use in livebook, add the following to the notebook dependencies and setup sec
 
 ```elixir
 Mix.install(
-  [{:hyperliquid, "~> 0.1.1"}],
+  [{:hyperliquid, "~> 0.1.2"}],
   config: [
     hyperliquid: [private_key: "YOUR_KEY_HERE"]
   ]
@@ -47,39 +47,208 @@ config :hyperliquid,
 
 ## Usage
 
+### Placing Orders
+```elixir
+# Retrieve mid-price for a coin
+mid_price = Hyperliquid.Orders.get_midprice("SOL")
+135.545
+
+# Place a market buy order
+Hyperliquid.Orders.market_buy("ETH", 1.0, "0x123...")
+{:ok,
+  %{
+    "response" => %{
+      "data" => %{
+        "statuses" => [
+          %{"filled" => %{"avgPx" => "128.03", "oid" => 17114311614, "totalSz" => "1.0"}}
+        ]
+      },
+      "type" => "order"
+    },
+    "status" => "ok"
+  }}
+
+# Place a limit sell order
+Hyperliquid.Orders.limit_order("BTC", 0.5, false, 50000, "gtc", false, "0x123...")
+{:ok,
+  %{
+    "response" => %{
+      "data" => %{"statuses" => [%{"resting" => %{"oid" => 10030901240}}]},
+      "type" => "order"
+    },
+    "status" => "ok"
+  }}
+```
+
+### Closing Positions
+```elixir
+# Close list of positions
+{:ok, %{"assetPositions" => positions}} = Info.clearinghouse_state("0x123")
+Hyperliquid.Orders.market_close(positions)
+
+# Close single position
+position = Enum.at(positions, 0)
+Hyperliquid.Orders.market_close(position)
+{:ok, %{
+    "response" => %{
+      "data" => %{
+        "statuses" => [
+          %{"filled" => %{"avgPx" => "148.07", "oid" => 10934427319, "totalSz" => "1.0"}}
+        ]
+      },
+      "type" => "order"
+    },
+    "status" => "ok"
+  }}
+
+# Close all positions for an address
+Hyperliquid.Orders.market_close("0x123...")
+[
+  ok: %{
+    "response" => %{
+      "data" => %{
+        "statuses" => [
+          %{"filled" => %{"avgPx" => "148.07", "oid" => 10934427319, "totalSz" => "1.0"}}
+        ]
+      },
+      "type" => "order"
+    },
+    "status" => "ok"
+  }
+]
+```
 ### Streaming Data
 To start a WebSocket stream:
 
 ```elixir
-alias Hyperliquid.Streamer.Supervisor
+# Pass in a single sub or list of subs to start a new ws connection.
+{:ok, PID<0.408.0>} = Hyperliquid.Manager.maybe_start_stream(%{type: "allMids"})
+{:ok, PID<0.408.0>} = Hyperliquid.Manager.maybe_start_stream([sub_list])
+# The manager will check if the sub is currently already subscribed, and if not, open the connection.
 
-{:ok, _pid} = Supervisor.start_stream([%{type: "allMids"}])
+# To subscribe to a user address, we call auto_start_user
+{:ok, PID<0.408.0>} = Hyperliquid.Manager.auto_start_user(user_address)
+
+# Because we are limited to 10 unique user subscriptions, it is crucial to keep track of which users
+# are currently subbed to and that logic is handled internally by the manager but also available to be called externally.
+Hyperliquid.Manager.get_subbed_users()
+["0x123..."]
+
+Hyperliquid.Manager..get_active_non_user_subs()
+[%{type: "allMids"}]
+
+Hyperliquid.Manager..get_active_user_subs()
+[
+  %{type: "userFundings", user: "0x123..."},
+  %{type: "userHistoricalOrders", user: "0x123..."},
+  %{type: "userTwapHistory", user: "0x123..."},
+  %{type: "userTwapSliceFills", user: "0x123..."},
+  %{type: "userNonFundingLedgerUpdates", user: "0x123..."},
+  %{type: "userFills", user: "0x123...", aggregateByTime: false},
+  %{type: "notification", user: "0x123..."}
+]
+
+Manager.get_workers()
+[PID<0.633.0>, PID<0.692.0>]
 ```
-### Placing Orders
-To place a market buy order:
+
+Once a Manager has started, it will automatically subscribe to allMids and update the cache. 
+The Stream module is broadcasting each event it receives to the "ws_event" channel, 
+to subscribe to these events in your own application, simply call subscribe like so:
+```elixir
+Phoenix.PubSub.subscribe(Hyperliquid.PubSub, channel)
+# also available is the shart hand method, via the Utils module.
+Hyperliquid.Utils.subscribe(channel)
+```
+
+### Cache
+The application uses Cachex to handle in memory kv storage for fast and efficient lookup of values 
+we frequently need to place valid orders, one of those key items is the current mid price of each asset.
+
+When initialized, the Manager will make several requests to get this data, as well as subscribe to the "allMids" channel. 
+This ensures the latest mid price is always up to date and can be immediately accessable.
+```elixir
+def init do
+  {:ok, meta} = Info.meta()
+  {:ok, spot_meta} = Info.spot_meta()
+  {:ok, mids} = Info.all_mids()
+
+  all_mids = Utils.atomize_keys(mids)
+  tokens = Map.get(spot_meta, "tokens")
+
+  asset_map = Map.merge(
+    create_asset_map(meta),
+    create_asset_map(spot_meta, 10_000)
+  )
+
+  decimal_map = Map.merge(
+    create_decimal_map(meta),
+    create_decimal_map(spot_meta, 8)
+  )
+
+  Cachex.put!(@cache, :meta, meta)
+  Cachex.put!(@cache, :spot_meta, spot_meta)
+  Cachex.put!(@cache, :all_mids, all_mids)
+  Cachex.put!(@cache, :asset_map, asset_map)
+  Cachex.put!(@cache, :decimal_map, decimal_map)
+  Cachex.put!(@cache, :tokens, tokens)
+end
+```
+You may also note some commonly used util methods in the Cache which can be used like this:
 
 ```elixir
-alias Hyperliquid.Orders
+Hyperliquid.Cache.asset_from_coin("SOL")
+5
 
-Orders.market_buy("BTC", 1)
+Hyperliquid.Cache.decimals_from_coin("SOL")
+2
+
+Hyperliquid.Cache.get_token_by_name("HFUN")
+%{
+  "evmContract" => nil,
+  "fullName" => nil,
+  "index" => 2,
+  "isCanonical" => false,
+  "name" => "HFUN",
+  "szDecimals" => 2,
+  "tokenId" => "0xbaf265ef389da684513d98d68edf4eae",
+  "weiDecimals" => 8
+}
+
+Hyperliquid.Cache.get_token_by_address("0xbaf265ef389da684513d98d68edf4eae")
+%{
+  "evmContract" => nil,
+  "fullName" => nil,
+  "index" => 2,
+  "isCanonical" => false,
+  "name" => "HFUN",
+  "szDecimals" => 2,
+  "tokenId" => "0xbaf265ef389da684513d98d68edf4eae",
+  "weiDecimals" => 8
+}
+
+Hyperliquid.Cache.get_token_key("PURR")
+"PURR:0xc1fb593aeffbeb02f85e0308e9956a90"
+
+Hyperliquid.Cache.get_token_by_name("PURR") |> Cache.get_token_key()
+"PURR:0xc1fb593aeffbeb02f85e0308e9956a90"
+
+Hyperliquid.Cache.get(:tokens)
+[
+  %{
+    "evmContract" => nil,
+    "fullName" => nil,
+    "index" => 0,
+    "isCanonical" => true,
+    "name" => "USDC",
+    "szDecimals" => 8,
+    "tokenId" => "0x6d1e7cde53ba9467b783cb7c530ce054",
+    "weiDecimals" => 8
+  },
+  ...
+]
 ```
-
-To place a limit sell order:
-
-```elixir
-Orders.limit_order("ETH", 2, false, 3000, "gtc", false)
-```
-
-### Closing Positions
-To close all positions for an address:
-```elixir
-Orders.market_close("0x1234...")
-```
-
-To close a single position:
-```elixir
-Orders.market_close(postion)
-```
+One great place to look for more insight on how to utilize the cache, is the Orders module.
 
 ## License
 This project is licensed under the MIT License.

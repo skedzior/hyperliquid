@@ -35,7 +35,7 @@ defmodule Hyperliquid.Streamer.Supervisor do
 
   alias Hyperliquid.Streamer.Stream
 
-  def start_link(args \\ []) do
+  def start_link(_args) do
     DynamicSupervisor.start_link(__MODULE__, [], name: __MODULE__)
   end
 

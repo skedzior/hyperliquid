@@ -109,7 +109,7 @@ defmodule Hyperliquid.Streamer.Stream do
   end
 
   @impl true
-  def handle_cast({:add_sub, sub}, %{user: user, subs: subs} = state) do
+  def handle_cast({:add_sub, sub}, %{user: user} = state) do
     message = Subscription.to_encoded_message(sub)
     subject = Subscription.get_subject(sub)
 
@@ -128,13 +128,13 @@ defmodule Hyperliquid.Streamer.Stream do
   end
 
   @impl true
-  def handle_cast({:remove_sub, sub}, %{user: user, subs: subs} = state) do
+  def handle_cast({:remove_sub, sub}, state) do
     Subscription.to_encoded_message(sub, false)
     |> then(&{:reply, {:text, &1}, state})
   end
 
   @impl true
-  def handle_disconnect(reason, %{restarts: restarts} = state) do
+  def handle_disconnect(reason, state) do
     IO.puts("Disconnected: #{inspect(reason)}")
     {:ok, state}
   end
@@ -215,7 +215,7 @@ defmodule Hyperliquid.Streamer.Stream do
     }
   end
 
-  def process_event(%{channel: "post", data: %{id: id, response: response}} = msg) do
+  def process_event(%{channel: "post", data: %{id: id, response: response}}) do
     %{
       id: id,
       channel: "post",
@@ -224,7 +224,7 @@ defmodule Hyperliquid.Streamer.Stream do
     }
   end
 
-  def process_event(%{channel: ch, data: data} = msg) do
+  def process_event(%{channel: ch, data: data}) do
     %{
       channel: ch,
       subject: Subscription.get_subject(ch),

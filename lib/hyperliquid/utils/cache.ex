@@ -142,10 +142,49 @@ defmodule Hyperliquid.Cache do
     Cachex.get_and_update!(@cache, key, func)
   end
 
+  def execute(func) do
+    Cachex.execute!(@cache, func)
+  end
+
+  @doc """
+  Executes a transaction for a set of keys.
+  """
+  def transaction(keys, func) do
+    Cachex.transaction!(@cache, keys, func)
+  end
+
+  @doc """
+  Removes a key from the cache.
+  """
+  def del(key) do
+    Cachex.del!(@cache, key)
+  end
+
+  @doc """
+  Checks if a key exists in the cache.
+  """
+  def exists?(key) do
+    Cachex.exists?(@cache, key)
+  end
+
   @doc """
   Increments a key's value in the cache by a given amount.
   """
   def incr(key, amount \\ 1) do
     Cachex.incr!(@cache, key, amount)
+  end
+
+  @doc """
+  Decrements a key's value in the cache by a given amount.
+  """
+  def decr(key, amount \\ 1) do
+    Cachex.decr!(@cache, key, amount)
+  end
+
+  @doc """
+  Clears all entries in the cache.
+  """
+  def clear do
+    Cachex.clear!(@cache)
   end
 end

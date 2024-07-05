@@ -16,18 +16,11 @@ defmodule Hyperliquid.Utils do
   - Hexadecimal string manipulations
   - Timestamp generation
   """
-  alias Hyperliquid.Atomizer
-
-  def atomize_keys(data), do: Atomizer.atomize_keys(data)
 
   @pubsub Hyperliquid.PubSub
 
   def subscribe(channel) do
     Phoenix.PubSub.subscribe(@pubsub, channel)
-  end
-
-  def broadcast(channel, payload) do
-    Phoenix.PubSub.broadcast(@pubsub, channel, payload)
   end
 
   def numbers_to_strings(struct, fields) do
@@ -86,4 +79,29 @@ defmodule Hyperliquid.Utils do
   def trim_0x(string), do: Regex.replace(~r/^0x/, string, "")
 
   def get_timestamp, do: :os.system_time(:millisecond)
+
+  @doc """
+  Utils for converting map keys to atoms.
+  """
+  def atomize_keys(data) when is_map(data) do
+    Enum.reduce(data, %{}, fn {key, value}, acc ->
+      atom_key = if is_binary(key), do: String.to_atom(key), else: key
+      Map.put(acc, atom_key, atomize_keys(value))
+    end)
+  end
+
+  def atomize_keys(data) when is_list(data) do
+    Enum.map(data, &atomize_keys/1)
+  end
+
+  def atomize_keys({key, value}) when is_binary(key) do
+    atom_key = String.to_atom(key)
+    {atom_key, atomize_keys(value)}
+  end
+
+  def atomize_keys({key, value}) do
+    {key, atomize_keys(value)}
+  end
+
+  def atomize_keys(data), do: data
 end

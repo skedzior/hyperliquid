@@ -23,16 +23,59 @@ defmodule Hyperliquid.Orders do
   Usage examples:
 
     # Retrieve mid-price for a coin
-    mid_price = Hyperliquid.Orders.get_midprice("BTC")
+    mid_price = Hyperliquid.Orders.get_midprice("SOL")
+    135.545
 
     # Place a market buy order
     Hyperliquid.Orders.market_buy("ETH", 1.0, "0x123...")
+    {:ok,
+      %{
+        "response" => %{
+          "data" => %{
+            "statuses" => [
+              %{"filled" => %{"avgPx" => "128.03", "oid" => 17114311614, "totalSz" => "1.0"}}
+            ]
+          },
+          "type" => "order"
+        },
+        "status" => "ok"
+      }}
 
     # Place a limit sell order
     Hyperliquid.Orders.limit_order("BTC", 0.5, false, 50000, "gtc", false, "0x123...")
+    {:ok,
+      %{
+        "response" => %{
+          "data" => %{"statuses" => [%{"resting" => %{"oid" => 10030901240}}]},
+          "type" => "order"
+        },
+        "status" => "ok"
+      }}
+
+    # Close list of positions
+    {:ok, %{"assetPositions" => positions}} = Info.clearinghouse_state("0x123")
+    Hyperliquid.Orders.market_close(positions)
+
+    # Close single position
+    positions
+    |> Enum.at(0)
+    |> Hyperliquid.Orders.market_close()
 
     # Close all positions for an address
     Hyperliquid.Orders.market_close("0x123...")
+    [
+      ok: %{
+        "response" => %{
+          "data" => %{
+            "statuses" => [
+              %{"filled" => %{"avgPx" => "148.07", "oid" => 10934427319, "totalSz" => "1.0"}}
+            ]
+          },
+          "type" => "order"
+        },
+        "status" => "ok"
+      }
+    ]
   """
 
   alias Hyperliquid.Api.{Info, Exchange}
@@ -58,9 +101,9 @@ defmodule Hyperliquid.Orders do
     end
   end
 
-  def slippage_price(coin, is_buy?, slippage \\ @default_slippage, px \\ nil) do
+  def slippage_price(coin, buy?, slippage \\ @default_slippage, px \\ nil) do
     px = px || get_midprice(coin)
-    px = if is_buy?, do: px * (1 + slippage), else: px * (1 - slippage)
+    px = if buy?, do: px * (1 + slippage), else: px * (1 - slippage)
 
     case PriceConverter.convert_price(px, :perp) do
       {:ok, px} -> px
@@ -87,21 +130,21 @@ defmodule Hyperliquid.Orders do
   def market_sell(coin, sz, vault_address \\ nil), do:
     market_order(coin, sz, false, false, vault_address, nil, @default_slippage)
 
-  def market_order(coin, sz, is_buy?, reduce?, vault_address \\ nil, px \\ nil, slippage \\ @default_slippage) do
-    px = slippage_price(coin, is_buy?, slippage, px)
+  def market_order(coin, sz, buy?, reduce?, vault_address \\ nil, px \\ nil, slippage \\ @default_slippage) do
+    px = slippage_price(coin, buy?, slippage, px)
     trigger = trigger_from_order_type("ioc")
     asset = Cache.asset_from_coin(coin)
 
-    OrderWire.new(asset, is_buy?, px, sz, reduce?, trigger)
+    OrderWire.new(asset, buy?, px, sz, reduce?, trigger)
     |> OrderWire.purify()
     |> Exchange.place_order("na", vault_address)
   end
 
-  def limit_order(coin, sz, is_buy?, px, tif \\ "gtc", reduce? \\ false, vault_address \\ nil) do
+  def limit_order(coin, sz, buy?, px, tif \\ "gtc", reduce? \\ false, vault_address \\ nil) do
     trigger = trigger_from_order_type(tif)
     asset = Cache.asset_from_coin(coin)
 
-    OrderWire.new(asset, is_buy?, px, sz, reduce?, trigger)
+    OrderWire.new(asset, buy?, px, sz, reduce?, trigger)
     |> OrderWire.purify()
     |> Exchange.place_order("na", vault_address)
   end
@@ -120,7 +163,7 @@ defmodule Hyperliquid.Orders do
   def market_close(%{"position" => p}, slippage, vault_address) do
     szi = String.to_float(p["szi"])
     sz = abs(szi)
-    is_buy? = if szi < 0, do: true, else: false
-    market_order(p["coin"], sz, is_buy?, true, vault_address, nil, slippage)
+    buy? = if szi < 0, do: true, else: false
+    market_order(p["coin"], sz, buy?, true, vault_address, nil, slippage)
   end
 end

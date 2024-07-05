@@ -62,7 +62,6 @@ defmodule Hyperliquid.Api.Exchange do
           "status" => "ok"
         }}
   """
-  def place_order(order), do: place_order(order, "na", nil)
   def place_order(order, grouping \\ "na", vault_address \\ nil)
 
   def place_order([_|_] = orders, grouping, vault_address) do

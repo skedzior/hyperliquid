@@ -49,10 +49,18 @@ defmodule Hyperliquid.Api.Exchange do
   ## Examples
 
       iex> Hyperliquid.Api.Exchange.place_order(order)
-      {:ok, %{...}}
-
-      iex> Hyperliquid.Api.Exchange.place_order(orders)
-      {:ok, %{...}}
+      {:ok,
+        %{
+          "response" => %{
+            "data" => %{
+              "statuses" => [
+                %{"filled" => %{"avgPx" => "115.17", "oid" => 18422439200, "totalSz" => "1.0"}}
+              ]
+            },
+            "type" => "order"
+          },
+          "status" => "ok"
+        }}
   """
   def place_order(order), do: place_order(order, "na", nil)
   def place_order(order, grouping \\ "na", vault_address \\ nil)

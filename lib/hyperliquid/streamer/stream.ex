@@ -38,7 +38,7 @@ defmodule Hyperliquid.Streamer.Stream do
   require Logger
 
   import Hyperliquid.Utils
-  alias Hyperliquid.{Api.Subscription, Cache, Config}
+  alias Hyperliquid.{Api.Subscription, Cache, Config, PubSub}
 
   @heartbeat_interval 50_000
   @timeout_seconds 60
@@ -161,7 +161,7 @@ defmodule Hyperliquid.Streamer.Stream do
         req_count: req_count + 1
       })
 
-    unless is_nil(event.channel), do: broadcast(event.channel, event)
+    broadcast("ws_event", event)
 
     Registry.update_value(@workers, id, fn _ -> new_state end)
 
@@ -254,6 +254,10 @@ defmodule Hyperliquid.Streamer.Stream do
       subject: nil,
       data: msg
     }
+  end
+
+  defp broadcast(channel, event) do
+    Phoenix.PubSub.broadcast(PubSub, channel, event)
   end
 
   @impl true

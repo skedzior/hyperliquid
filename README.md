@@ -53,8 +53,11 @@ config :hyperliquid,
 mid_price = Hyperliquid.Orders.get_midprice("SOL")
 135.545
 
-# Place a market buy order
-Hyperliquid.Orders.market_buy("ETH", 1.0, "0x123...")
+# Place a market sell order
+Hyperliquid.Orders.market_sell("ETH", 1)
+
+# Place a market buy order for a sub account (vault address)
+Hyperliquid.Orders.market_buy("ETH", 1, "0x123...")
 {:ok,
   %{
     "response" => %{
@@ -69,7 +72,7 @@ Hyperliquid.Orders.market_buy("ETH", 1.0, "0x123...")
   }}
 
 # Place a limit sell order
-Hyperliquid.Orders.limit_order("BTC", 0.5, false, 50000, "gtc", false, "0x123...")
+Hyperliquid.Orders.limit_order("BTC", 0.5, false, 50000, "gtc", false)
 {:ok,
   %{
     "response" => %{

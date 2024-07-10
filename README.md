@@ -137,10 +137,10 @@ To start a WebSocket stream:
 Hyperliquid.Manager.get_subbed_users()
 ["0x123..."]
 
-Hyperliquid.Manager..get_active_non_user_subs()
+Hyperliquid.Manager.get_active_non_user_subs()
 [%{type: "allMids"}]
 
-Hyperliquid.Manager..get_active_user_subs()
+Hyperliquid.Manager.get_active_user_subs()
 [
   %{type: "userFundings", user: "0x123..."},
   %{type: "userHistoricalOrders", user: "0x123..."},

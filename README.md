@@ -28,10 +28,24 @@ end
 To use in livebook, add the following to the notebook dependencies and setup section:
 
 ```elixir
-Mix.install(
-  [{:hyperliquid, "~> 0.1.2"}],
+Mix.install([
+    {:hyperliquid, "~> 0.1.2"}
+  ],
   config: [
     hyperliquid: [private_key: "YOUR_KEY_HERE"]
+  ]
+)
+
+# You can override the default ws and http urls to use testnet
+Mix.install([
+    {:hyperliquid, "~> 0.1.2"}
+  ],
+  config: [
+    hyperliquid: [
+      ws_url: "wss://api.hyperliquid-testnet.xyz/ws",
+      http_url: "https://api.hyperliquid-testnet.xyz",
+      private_key: "YOUR_KEY_HERE"
+    ]
   ]
 )
 ```
@@ -49,10 +63,6 @@ config :hyperliquid,
 
 ### Placing Orders
 ```elixir
-# Retrieve mid-price for a coin
-mid_price = Hyperliquid.Orders.get_midprice("SOL")
-135.545
-
 # Place a market sell order
 Hyperliquid.Orders.market_sell("ETH", 1)
 

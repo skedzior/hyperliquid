@@ -133,4 +133,8 @@ defmodule Hyperliquid.Api.Info do
   def user_fills(user_address) do
     post(%{type: "userFills", user: user_address})
   end
+
+  def tvl_breakdown do
+    post(%{type: "tvlBreakdown"})
+  end
 end

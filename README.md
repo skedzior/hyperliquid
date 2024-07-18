@@ -18,7 +18,7 @@ Add `hyperliquid` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:hyperliquid, "~> 0.1.2"}
+    {:hyperliquid, "~> 0.1.3"}
   ]
 end
 ```
@@ -29,7 +29,7 @@ To use in livebook, add the following to the notebook dependencies and setup sec
 
 ```elixir
 Mix.install([
-    {:hyperliquid, "~> 0.1.2"}
+    {:hyperliquid, "~> 0.1.3"}
   ],
   config: [
     hyperliquid: [private_key: "YOUR_KEY_HERE"]
@@ -38,7 +38,7 @@ Mix.install([
 
 # You can override the default ws and http urls to use testnet
 Mix.install([
-    {:hyperliquid, "~> 0.1.2"}
+    {:hyperliquid, "~> 0.1.3"}
   ],
   config: [
     hyperliquid: [
@@ -180,32 +180,19 @@ we frequently need to place valid orders, one of those key items is the current 
 
 When initialized, the Manager will make several requests to get this data, as well as subscribe to the "allMids" channel. 
 This ensures the latest mid price is always up to date and can be immediately accessable.
+
+Quick access utility functions.
 ```elixir
-def init do
-  {:ok, meta} = Info.meta()
-  {:ok, spot_meta} = Info.spot_meta()
-  {:ok, mids} = Info.all_mids()
-
-  all_mids = Utils.atomize_keys(mids)
-  tokens = Map.get(spot_meta, "tokens")
-
-  asset_map = Map.merge(
-    create_asset_map(meta),
-    create_asset_map(spot_meta, 10_000)
-  )
-
-  decimal_map = Map.merge(
-    create_decimal_map(meta),
-    create_decimal_map(spot_meta, 8)
-  )
-
-  Cachex.put!(@cache, :meta, meta)
-  Cachex.put!(@cache, :spot_meta, spot_meta)
-  Cachex.put!(@cache, :all_mids, all_mids)
-  Cachex.put!(@cache, :asset_map, asset_map)
-  Cachex.put!(@cache, :decimal_map, decimal_map)
-  Cachex.put!(@cache, :tokens, tokens)
-end
+def meta,         do: Cache.get(:meta)
+def spot_meta,    do: Cache.get(:spot_meta)
+def all_mids,     do: Cache.get(:all_mids)
+def asset_map,    do: Cache.get(:asset_map)
+def decimal_map,  do: Cache.get(:decimal_map)
+def perps,        do: Cache.get(:perps)
+def spot_pairs,   do: Cache.get(:spot_pairs)
+def tokens,       do: Cache.get(:tokens)
+def ctxs,         do: Cache.get(:ctxs)
+def spot_ctxs,    do: Cache.get(:spot_ctxs)
 ```
 You may also note some commonly used util methods in the Cache which can be used like this:
 

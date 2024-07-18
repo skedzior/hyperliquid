@@ -24,11 +24,13 @@ defmodule Hyperliquid.Cache do
   Initializes the cache with api information.
   """
   def init do
-    {:ok, meta} = Info.meta()
-    {:ok, spot_meta} = Info.spot_meta()
+    {:ok, [meta, ctxs]} = Info.meta_and_asset_ctxs()
+    {:ok, [spot_meta, spot_ctxs]} = Info.spot_meta_and_asset_ctxs()
     {:ok, mids} = Info.all_mids()
 
     all_mids = Utils.atomize_keys(mids)
+    perps = Map.get(meta, "universe")
+    spot_pairs = Map.get(spot_meta, "universe")
     tokens = Map.get(spot_meta, "tokens")
 
     asset_map = Map.merge(
@@ -46,8 +48,23 @@ defmodule Hyperliquid.Cache do
     Cachex.put!(@cache, :all_mids, all_mids)
     Cachex.put!(@cache, :asset_map, asset_map)
     Cachex.put!(@cache, :decimal_map, decimal_map)
+    Cachex.put!(@cache, :perps, perps)
+    Cachex.put!(@cache, :spot_pairs, spot_pairs)
     Cachex.put!(@cache, :tokens, tokens)
+    Cachex.put!(@cache, :ctxs, ctxs)
+    Cachex.put!(@cache, :spot_ctxs, spot_ctxs)
   end
+
+  def meta,         do: Cache.get(:meta)
+  def spot_meta,    do: Cache.get(:spot_meta)
+  def all_mids,     do: Cache.get(:all_mids)
+  def asset_map,    do: Cache.get(:asset_map)
+  def decimal_map,  do: Cache.get(:decimal_map)
+  def perps,        do: Cache.get(:perps)
+  def spot_pairs,   do: Cache.get(:spot_pairs)
+  def tokens,       do: Cache.get(:tokens)
+  def ctxs,         do: Cache.get(:ctxs)
+  def spot_ctxs,    do: Cache.get(:spot_ctxs)
 
   ###### Setters ######
   defp create_asset_map(data, buffer \\ 0) do

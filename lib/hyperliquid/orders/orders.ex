@@ -85,7 +85,7 @@ defmodule Hyperliquid.Orders do
   @default_slippage 0.05
 
   def get_midprice(coin) do
-    mids = Cache.get(:all_mids) || fetch_mids()
+    mids = Cache.all_mids() || fetch_mids()
     coin = String.to_existing_atom(coin)
 
     case Map.get(mids, coin) do

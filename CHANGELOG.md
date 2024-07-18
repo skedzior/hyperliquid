@@ -1,0 +1,1 @@
+0.1.3 - added functions to cache for easier access and allow intelisense to help you see whats available 

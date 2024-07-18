@@ -11,9 +11,10 @@ defmodule Hyperliquid.Application do
   def start(_type, _args) do
     children = [
       {Phoenix.PubSub, name: Hyperliquid.PubSub},
-      {Cachex, name: @cache},
       {Registry, [keys: :unique, name: @workers]},
       {Registry, [keys: :unique, name: @users]},
+      {Cachex, name: @cache},
+      {Hyperliquid.Cache.Updater, []},
       Hyperliquid.Streamer.Supervisor,
       Hyperliquid.Manager
     ]

@@ -8,6 +8,10 @@ defmodule Hyperliquid.Api.Info do
     post(%{type: "userVaultEquities", user: user_address})
   end
 
+  def vault_details(vault_address) do
+    post(%{type: "vaultDetails", vaultAddress: vault_address})
+  end
+
   # only for testnet
   def eth_faucet(user_address) do
     post(%{type: "ethFaucet", user: user_address})

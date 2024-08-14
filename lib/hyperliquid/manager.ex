@@ -75,6 +75,21 @@ defmodule Hyperliquid.Manager do
     |> DynamicSupervisor.which_children()
     |> Enum.map(&elem(&1, 1))
 
+  def get_worker_pid_by_sub(match_sub), do: get_pid_by_sub(@workers, match_sub)
+
+  def get_pid_by_sub(registry, match_sub) do
+    results = Registry.select(registry, [
+      {{:"$1", :"$2", :"$3"}, [], [{{:"$2", :"$3"}}]}
+    ])
+
+    case Enum.find(results, fn {_pid, state} ->
+      Enum.any?(state.subs, fn sub -> sub == match_sub end)
+    end) do
+      {pid, _state} -> pid
+      nil -> {:error, :not_found}
+    end
+  end
+
   def maybe_start_stream(sub) when is_map(sub) do
     subbed? = get_active_non_user_subs() |> Enum.member?(sub)
 

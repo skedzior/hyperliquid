@@ -211,7 +211,8 @@ defmodule Hyperliquid.Streamer.Stream do
       data: data,
       method: method,
       sub: sub,
-      key: Subscription.to_key(sub)
+      key: Subscription.to_key(sub),
+      pid: self()
     }
   end
 
@@ -220,7 +221,8 @@ defmodule Hyperliquid.Streamer.Stream do
       id: id,
       channel: "post",
       subject: Subscription.get_subject(response.payload.type),
-      data: response
+      data: response,
+      pid: self()
     }
   end
 
@@ -228,7 +230,8 @@ defmodule Hyperliquid.Streamer.Stream do
     %{
       channel: ch,
       subject: Subscription.get_subject(ch),
-      data: data
+      data: data,
+      pid: self()
     }
   end
 
@@ -236,7 +239,8 @@ defmodule Hyperliquid.Streamer.Stream do
     %{
       channel: "explorerTxs",
       subject: :txs,
-      data: msg
+      data: msg,
+      pid: self()
     }
   end
 
@@ -244,7 +248,8 @@ defmodule Hyperliquid.Streamer.Stream do
     %{
       channel: "explorerBlock",
       subject: :block,
-      data: msg
+      data: msg,
+      pid: self()
     }
   end
 
@@ -252,7 +257,8 @@ defmodule Hyperliquid.Streamer.Stream do
     %{
       channel: nil,
       subject: nil,
-      data: msg
+      data: msg,
+      pid: self()
     }
   end
 

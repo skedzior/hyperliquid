@@ -161,7 +161,11 @@ defmodule Hyperliquid.Streamer.Stream do
         req_count: req_count + 1
       })
 
-    broadcast("ws_event", event)
+    broadcast("ws_event", Map.merge(event, %{
+      pid: self(),
+      wid: id,
+      subs: state.subs
+    }))
 
     Registry.update_value(@workers, id, fn _ -> new_state end)
 
@@ -211,8 +215,7 @@ defmodule Hyperliquid.Streamer.Stream do
       data: data,
       method: method,
       sub: sub,
-      key: Subscription.to_key(sub),
-      pid: self()
+      key: Subscription.to_key(sub)
     }
   end
 
@@ -221,8 +224,7 @@ defmodule Hyperliquid.Streamer.Stream do
       id: id,
       channel: "post",
       subject: Subscription.get_subject(response.payload.type),
-      data: response,
-      pid: self()
+      data: response
     }
   end
 
@@ -230,8 +232,7 @@ defmodule Hyperliquid.Streamer.Stream do
     %{
       channel: ch,
       subject: Subscription.get_subject(ch),
-      data: data,
-      pid: self()
+      data: data
     }
   end
 
@@ -239,8 +240,7 @@ defmodule Hyperliquid.Streamer.Stream do
     %{
       channel: "explorerTxs",
       subject: :txs,
-      data: msg,
-      pid: self()
+      data: msg
     }
   end
 
@@ -248,8 +248,7 @@ defmodule Hyperliquid.Streamer.Stream do
     %{
       channel: "explorerBlock",
       subject: :block,
-      data: msg,
-      pid: self()
+      data: msg
     }
   end
 
@@ -257,8 +256,7 @@ defmodule Hyperliquid.Streamer.Stream do
     %{
       channel: nil,
       subject: nil,
-      data: msg,
-      pid: self()
+      data: msg
     }
   end
 

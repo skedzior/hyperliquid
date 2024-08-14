@@ -48,7 +48,7 @@ defmodule Hyperliquid.Api.Subscription do
   # COIN #
   def candle(coin, interval), do: %{type: "candle", coin: coin, interval: interval}
 
-  def l2_book(coin), do: %{type: "l2Book", coin: coin}
+  def l2_book(coin, sig_figs \\ 5, mantissa \\ nil), do: %{type: "l2Book", coin: coin, nSigFigs: sig_figs, mantissa: mantissa}
 
   def trades(coin), do: %{type: "trades", coin: coin}
 

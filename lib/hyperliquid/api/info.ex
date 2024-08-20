@@ -4,23 +4,6 @@ defmodule Hyperliquid.Api.Info do
   """
   use Hyperliquid.Api, context: "info"
 
-  def user_vault_equities(user_address) do
-    post(%{type: "userVaultEquities", user: user_address})
-  end
-
-  def vault_details(vault_address) do
-    post(%{type: "vaultDetails", vaultAddress: vault_address})
-  end
-
-  # only for testnet
-  def eth_faucet(user_address) do
-    post(%{type: "ethFaucet", user: user_address})
-  end
-
-  def user_rate_limit(user_address) do
-    post(%{type: "userRateLimit", user: user_address})
-  end
-
   def meta do
     post(%{type: "meta"})
   end
@@ -43,10 +26,6 @@ defmodule Hyperliquid.Api.Info do
 
   def spot_clearinghouse_state(user_address) do
     post(%{type: "spotClearinghouseState", user: user_address})
-  end
-
-  def leaderboard do
-    post(%{type: "leaderboard"})
   end
 
   def all_mids do
@@ -94,34 +73,6 @@ defmodule Hyperliquid.Api.Info do
     post(%{type: "orderStatus", user: user_address, oid: id})
   end
 
-  def referral_state(user_address) do
-    post(%{type: "referral", user: user_address})
-  end
-
-  def sub_accounts(user_address) do
-    post(%{type: "subAccounts", user: user_address})
-  end
-
-  def agents(user_address) do
-    post(%{type: "extraAgents", user: user_address})
-  end
-
-  def portfolio(user_address) do
-    post(%{type: "portfolio", user: user_address})
-  end
-
-  def predicted_fundings do
-    post(%{type: "predictedFundings"})
-  end
-
-  def is_vip(user_address) do
-    post(%{type: "isVip", user: user_address})
-  end
-
-  def vaults(user_address) do
-    post(%{type: "vaults", user: user_address})
-  end
-
   def user_twap_slice_fills(user_address) do
     post(%{type: "userTwapSliceFills", user: user_address})
   end
@@ -138,7 +89,67 @@ defmodule Hyperliquid.Api.Info do
     post(%{type: "userFills", user: user_address})
   end
 
+  @doc """
+  Returns at most 2000 fills per response and only the 10000 most recent fills are available
+  """
+  def user_fills_by_time(user_address, startTime) do
+    post(%{type: "userFillsByTime", user: user_address, startTime: startTime})
+  end
+
+  def user_fills_by_time(user_address, startTime, endTime) do
+    post(%{type: "userFillsByTime", user: user_address, startTime: startTime, endTime: endTime})
+  end
+
+  def user_vault_equities(user_address) do
+    post(%{type: "userVaultEquities", user: user_address})
+  end
+
+  def user_rate_limit(user_address) do
+    post(%{type: "userRateLimit", user: user_address})
+  end
+
+  def leaderboard do
+    post(%{type: "leaderboard"})
+  end
+
+  def vaults(user_address) do
+    post(%{type: "vaults", user: user_address})
+  end
+
+  def vault_details(vault_address) do
+    post(%{type: "vaultDetails", vaultAddress: vault_address})
+  end
+
+  def referral_state(user_address) do
+    post(%{type: "referral", user: user_address})
+  end
+
+  def sub_accounts(user_address) do
+    post(%{type: "subAccounts", user: user_address})
+  end
+
+  def agents(user_address) do
+    post(%{type: "extraAgents", user: user_address})
+  end
+
+  def predicted_fundings do
+    post(%{type: "predictedFundings"})
+  end
+
+  def portfolio(user_address) do
+    post(%{type: "portfolio", user: user_address})
+  end
+
+  def is_vip(user_address) do
+    post(%{type: "isVip", user: user_address})
+  end
+
   def tvl_breakdown do
     post(%{type: "tvlBreakdown"})
+  end
+
+  # only for testnet
+  def eth_faucet(user_address) do
+    post(%{type: "ethFaucet", user: user_address})
   end
 end

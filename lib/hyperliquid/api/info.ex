@@ -39,8 +39,8 @@ defmodule Hyperliquid.Api.Info do
     })
   end
 
-  def l2_book(coin) do
-    post(%{type: "l2Book", coin: coin})
+  def l2_book(coin, sig_figs \\ 5, mantissa \\ nil) do
+    %{type: "l2Book", coin: coin, nSigFigs: sig_figs, mantissa: mantissa}
   end
 
   def user_funding(user_address, start_time, end_time) do

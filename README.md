@@ -18,7 +18,7 @@ Add `hyperliquid` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:hyperliquid, "~> 0.1.5"}
+    {:hyperliquid, "~> 0.1.6"}
   ]
 end
 ```
@@ -29,7 +29,7 @@ To use in livebook, add the following to the notebook dependencies and setup sec
 
 ```elixir
 Mix.install([
-    {:hyperliquid, "~> 0.1.5"}
+    {:hyperliquid, "~> 0.1.6"}
   ],
   config: [
     hyperliquid: [private_key: "YOUR_KEY_HERE"]
@@ -38,7 +38,7 @@ Mix.install([
 
 # You can override the default ws and http urls to use testnet
 Mix.install([
-    {:hyperliquid, "~> 0.1.5"}
+    {:hyperliquid, "~> 0.1.6"}
   ],
   config: [
     hyperliquid: [

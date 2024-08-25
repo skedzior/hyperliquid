@@ -197,7 +197,7 @@ def spot_ctxs,    do: Cache.get(:spot_ctxs)
 You may also note some commonly used util methods in the Cache which can be used like this:
 
 ```elixir
-Hyperliquid.Cache.asset_from_coin("SOL")
+Hyperliquid.Cache.asset_name_to_index("SOL")
 5
 
 Hyperliquid.Cache.decimals_from_coin("SOL")

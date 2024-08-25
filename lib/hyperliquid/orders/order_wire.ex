@@ -32,11 +32,11 @@ defmodule Hyperliquid.Orders.OrderWire do
   The OrderWire struct is typically used within order placement functions in the Orders module. Here's an example
   of how it is used for a `limit_order` function:
 
-      def limit_order(coin, sz, is_buy?, px, tif \\ "gtc", reduce? \\ false, vault_address \\ nil) do
+      def limit_order(asset_name, sz, is_buy?, px, tif \\ "gtc", reduce? \\ false, vault_address \\ nil) do
         trigger = trigger_from_order_type(tif)
-        asset = Cache.asset_from_coin(coin)
+        asset_index = Cache.asset_name_to_index(asset_name)
 
-        OrderWire.new(asset, is_buy?, px, sz, reduce?, trigger)
+        OrderWire.new(asset_index, is_buy?, px, sz, reduce?, trigger)
         |> OrderWire.purify()
         |> Exchange.place_order("na", vault_address)
       end

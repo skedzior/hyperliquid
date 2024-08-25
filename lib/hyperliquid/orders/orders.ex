@@ -22,9 +22,12 @@ defmodule Hyperliquid.Orders do
 
   Usage examples:
 
-    # Retrieve mid-price for a coin
-    mid_price = Hyperliquid.Orders.get_midprice("SOL")
-    135.545
+    # Retrieve mid-price for an asset
+      mid_price = Hyperliquid.Orders.get_midprice("SOL")
+      135.545
+
+      mid_price = Hyperliquid.Orders.get_midprice("PURR/USDC")
+      0.18546
 
     # Place a market buy order
     Hyperliquid.Orders.market_buy("ETH", 1.0, "0x123...")
@@ -84,7 +87,8 @@ defmodule Hyperliquid.Orders do
 
   @default_slippage 0.05
 
-  def get_midprice(coin) do
+  def get_midprice(asset_name) do
+    coin = Cache.asset_name_to_coin(asset_name)
     mids = Cache.all_mids() || fetch_mids()
     coin = String.to_existing_atom(coin)
 
@@ -101,8 +105,8 @@ defmodule Hyperliquid.Orders do
     end
   end
 
-  def slippage_price(coin, buy?, slippage \\ @default_slippage, px \\ nil) do
-    px = px || get_midprice(coin)
+  def slippage_price(asset_name, buy?, slippage \\ @default_slippage, px \\ nil) do
+    px = px || get_midprice(asset_name)
     px = if buy?, do: px * (1 + slippage), else: px * (1 - slippage)
 
     case PriceConverter.convert_price(px, :perp) do
@@ -124,27 +128,27 @@ defmodule Hyperliquid.Orders do
 
   def trigger_from_order_type(type) when is_map(type), do: %{trigger: type}
 
-  def market_buy(coin, sz, vault_address \\ nil), do:
-    market_order(coin, sz, true, false, vault_address, nil, @default_slippage)
+  def market_buy(asset_name, sz, vault_address \\ nil), do:
+    market_order(asset_name, sz, true, false, vault_address, nil, @default_slippage)
 
-  def market_sell(coin, sz, vault_address \\ nil), do:
-    market_order(coin, sz, false, false, vault_address, nil, @default_slippage)
+  def market_sell(asset_name, sz, vault_address \\ nil), do:
+    market_order(asset_name, sz, false, false, vault_address, nil, @default_slippage)
 
-  def market_order(coin, sz, buy?, reduce?, vault_address \\ nil, px \\ nil, slippage \\ @default_slippage) do
-    px = slippage_price(coin, buy?, slippage, px)
+  def market_order(asset_name, sz, buy?, reduce?, vault_address \\ nil, px \\ nil, slippage \\ @default_slippage) do
+    px = slippage_price(asset_name, buy?, slippage, px)
     trigger = trigger_from_order_type("ioc")
-    asset = Cache.asset_from_coin(coin)
+    asset_index = Cache.asset_name_to_index(asset_name)
 
-    OrderWire.new(asset, buy?, px, sz, reduce?, trigger)
+    OrderWire.new(asset_index, buy?, px, sz, reduce?, trigger)
     |> OrderWire.purify()
     |> Exchange.place_order("na", vault_address)
   end
 
-  def limit_order(coin, sz, buy?, px, tif \\ "gtc", reduce? \\ false, vault_address \\ nil) do
+  def limit_order(asset_name, sz, buy?, px, tif \\ "gtc", reduce? \\ false, vault_address \\ nil) do
     trigger = trigger_from_order_type(tif)
-    asset = Cache.asset_from_coin(coin)
+    asset_index = Cache.asset_name_to_index(asset_name)
 
-    OrderWire.new(asset, buy?, px, sz, reduce?, trigger)
+    OrderWire.new(asset_index, buy?, px, sz, reduce?, trigger)
     |> OrderWire.purify()
     |> Exchange.place_order("na", vault_address)
   end

@@ -17,6 +17,7 @@ Hyperliquid provides a comprehensive, type-safe interface to the Hyperliquid DEX
 - **WebSocket connection pooling** - Efficient connection management with automatic reconnection
 - **Cachex-based caching** - Fast in-memory asset metadata and mid price lookups
 - **Optional Postgres persistence** - Config-driven database storage for API data
+- **Local node client** - Low-latency access to local node Info and EVM RPC endpoints
 - **Testnet/mainnet support** - Easy chain switching with automatic database separation
 - **Phoenix PubSub integration** - Real-time event broadcasting
 
@@ -104,6 +105,11 @@ config :hyperliquid,
   enable_db: false,
   enable_web: false,
   autostart_cache: true,
+
+  # Local node (for --serve-info and --serve-eth-rpc)
+  enable_node_info: false,
+  enable_node_rpc: false,
+  node_url: "http://localhost:3001",
 
   # Debug logging
   debug: false,
@@ -600,6 +606,71 @@ config: [
     private_key: "YOUR_TESTNET_KEY"
   ]
 ])
+```
+
+## Local Node
+
+When running a Hyperliquid node with `--serve-info` and/or `--serve-eth-rpc`, the `Hyperliquid.Node` module provides low-latency access without rate limits.
+
+### Configuration
+
+Info and RPC endpoints can be enabled independently:
+
+```elixir
+config :hyperliquid,
+  node_url: "http://localhost:3001",
+  enable_node_info: true,  # enables Node info convenience functions
+  enable_node_rpc: true    # registers :node named RPC at startup
+```
+
+### Info Endpoints
+
+Convenience functions are generated for all documented local info endpoints, with automatic struct parsing:
+
+```elixir
+alias Hyperliquid.Node
+
+# Parsed struct responses (same types as the public API)
+{:ok, meta} = Node.meta()
+{:ok, state} = Node.clearinghouse_state("0x...")
+{:ok, orders} = Node.open_orders("0x...")
+{:ok, status} = Node.exchange_status()
+
+# Generic fallback for any info request (returns raw map)
+{:ok, data} = Node.info_request(%{type: "someEndpoint", user: "0x..."})
+
+# Health check
+{:ok, _} = Node.ping()
+```
+
+### File Snapshots
+
+The local info server supports `fileSnapshot` requests that write large data to files on the node's filesystem:
+
+```elixir
+# Generic file snapshot
+Node.file_snapshot(%{type: "referrerStates"}, "/tmp/out.json")
+
+# Convenience helpers
+Node.referrer_states_snapshot("/tmp/referrer.json")
+Node.l4_snapshots("/tmp/l4.json", include_users: true, include_trigger_orders: true)
+
+# Include block height in output
+Node.file_snapshot(%{type: "referrerStates"}, "/tmp/out.json", include_height: true)
+```
+
+### EVM RPC
+
+When `enable_node_rpc: true`, a `:node` named RPC is registered at startup. Use it through the existing RPC modules or the Node helpers:
+
+```elixir
+# Via existing RPC modules
+alias Hyperliquid.Rpc.Eth
+Eth.block_number(rpc_name: :node)
+
+# Via Node helpers
+Node.rpc_call("eth_blockNumber")
+Node.rpc_call("eth_getBalance", ["0x...", "latest"])
 ```
 
 ## Explorer API

@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Added `Hyperliquid.Node` module for interacting with local Hyperliquid node endpoints
+- 29 generated convenience functions for documented local info server endpoints with struct parsing
+- Generic `info_request/2` fallback for undocumented or future node endpoints
+- File snapshot helpers (`file_snapshot/3`, `referrer_states_snapshot/2`, `l4_snapshots/2`)
+- EVM RPC helpers via `:node` named RPC (`rpc_call/2`, `rpc_call!/2`)
+- Added `node_info_request/2` to `Hyperliquid.Transport.Http`
+- Independent `enable_node_info` and `enable_node_rpc` config flags
+- Added `node_url/0`, `node_rpc_enabled?/0`, `node_info_enabled?/0` to `Hyperliquid.Config`
+
 ## 0.3.1
 
 ### Changed

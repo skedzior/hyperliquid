@@ -451,4 +451,56 @@ defmodule Hyperliquid.Config do
   def cache_janitor_interval do
     Application.get_env(:hyperliquid, :cache_janitor_interval, 60_000)
   end
+
+  @doc """
+  Returns the URL for a local Hyperliquid node.
+
+  Local nodes can serve EVM JSON-RPC (`/evm`) and Info API (`/info`) endpoints
+  when started with `--serve-eth-rpc` and `--serve-info` flags.
+
+  Defaults to `http://localhost:3001`.
+
+  ## Configuration
+
+      config :hyperliquid,
+        node_url: "http://localhost:3001"
+  """
+  def node_url do
+    Application.get_env(:hyperliquid, :node_url, "http://localhost:3001")
+  end
+
+  @doc """
+  Returns whether the local node EVM RPC is enabled.
+
+  When true, the application registers a `:node` named RPC pointing to
+  `node_url()/evm` in the RPC Registry at startup. This allows using
+  `rpc_name: :node` in RPC calls.
+
+  Defaults to `false`.
+
+  ## Configuration
+
+      config :hyperliquid,
+        enable_node_rpc: true
+  """
+  def node_rpc_enabled? do
+    Application.get_env(:hyperliquid, :enable_node_rpc, false) == true
+  end
+
+  @doc """
+  Returns whether the local node Info API is enabled.
+
+  When true, `Hyperliquid.Node` convenience functions will send requests
+  to `node_url()/info`. The node must be running with `--serve-info`.
+
+  Defaults to `false`.
+
+  ## Configuration
+
+      config :hyperliquid,
+        enable_node_info: true
+  """
+  def node_info_enabled? do
+    Application.get_env(:hyperliquid, :enable_node_info, false) == true
+  end
 end

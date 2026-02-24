@@ -625,16 +625,37 @@ config :hyperliquid,
 
 ### Info Endpoints
 
-Convenience functions are generated for all documented local info endpoints, with automatic struct parsing:
+Convenience functions are generated for all verified local info endpoints, with automatic struct parsing:
 
 ```elixir
 alias Hyperliquid.Node
 
-# Parsed struct responses (same types as the public API)
+# No-param endpoints
 {:ok, meta} = Node.meta()
+{:ok, status} = Node.exchange_status()
+{:ok, metas} = Node.all_perp_metas()
+{:ok, reserves} = Node.all_borrow_lend_reserve_states()
+{:ok, spot} = Node.spot_meta()
+
+# User-param endpoints
 {:ok, state} = Node.clearinghouse_state("0x...")
 {:ok, orders} = Node.open_orders("0x...")
-{:ok, status} = Node.exchange_status()
+{:ok, fees} = Node.user_fees("0x...")
+{:ok, accounts} = Node.sub_accounts2("0x...")
+{:ok, abstraction} = Node.user_dex_abstraction("0x...")
+
+# Other single-param endpoints
+{:ok, table} = Node.margin_table(56)
+{:ok, info} = Node.aligned_quote_token_info(0)
+{:ok, limits} = Node.perp_dex_limits("some_dex")
+{:ok, reserve} = Node.borrow_lend_reserve_state(0)
+{:ok, ann} = Node.perp_annotation("BTC")
+
+# Endpoints with optional dex: keyword arg
+{:ok, meta} = Node.meta(dex: "some_dex")
+{:ok, state} = Node.clearinghouse_state("0x...", dex: "some_dex")
+{:ok, orders} = Node.open_orders("0x...", dex: "some_dex")
+{:ok, caps} = Node.perps_at_open_interest_cap(dex: "some_dex")
 
 # Generic fallback for any info request (returns raw map)
 {:ok, data} = Node.info_request(%{type: "someEndpoint", user: "0x..."})
@@ -642,6 +663,37 @@ alias Hyperliquid.Node
 # Health check
 {:ok, _} = Node.ping()
 ```
+
+<details>
+<summary>Supported local node info endpoints (42 total)</summary>
+
+**No-param:** `meta`*, `spotMeta`, `allPerpMetas`, `allBorrowLendReserveStates`,
+`exchangeStatus`, `liquidatable`, `vaultSummaries`, `leadingVaults`, `perpDexs`,
+`perpCategories`, `perpDeployAuctionStatus`, `perpsAtOpenInterestCap`*, `spotDeployState`,
+`spotPairDeployAuctionStatus`, `validatorL1Votes`, `maxMarketOrderNtls`
+
+**User-param:** `clearinghouseState`*, `spotClearinghouseState`, `openOrders`*,
+`frontendOpenOrders`*, `extraAgents`, `subAccounts`, `subAccounts2`, `userFees`,
+`userRateLimit`, `userVaultEquities`, `userDexAbstraction`, `userToMultiSigSigners`,
+`userRole`, `userAbstraction`, `approvedBuilders`, `borrowLendUserState`,
+`delegations`, `delegatorSummary`, `maxBuilderFee`, `webData2`
+
+**User+coin:** `activeAssetData`
+
+**Other params:** `marginTable` (id), `alignedQuoteTokenInfo` (token),
+`borrowLendReserveState` (token), `perpAnnotation` (coin), `perpDexLimits` (dex)
+
+\* Supports optional `dex:` keyword arg
+
+**Not supported on local node:** `allMids`, `metaAndAssetCtxs`, `spotMetaAndAssetCtxs`,
+`predictedFundings`, `l2Book`, `recentTrades`, `candleSnapshot`, `fundingHistory`,
+`userFills`, `userFillsByTime`, `userFunding`, `userBorrowLendInterest`,
+`userNonFundingLedgerUpdates`, `historicalOrders`, `orderStatus`, `perpDexStatus`,
+`vaultDetails`, `tokenDetails`, `validatorSummaries`, `gossipRootIps`,
+`portfolio`, `referral`, `isVip`, `legalCheck`, `preTransferCheck`, `twapHistory`,
+`delegatorHistory`, `delegatorRewards`, `userTwapSliceFills`, `userTwapSliceFillsByTime`
+
+</details>
 
 ### File Snapshots
 

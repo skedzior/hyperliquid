@@ -66,6 +66,62 @@ defmodule Hyperliquid.NodeTest do
 
       assert {:ok, _result} = Node.spot_meta()
     end
+
+    test "all_perp_metas/0 sends correct payload", %{bypass: bypass} do
+      Bypass.expect(bypass, "POST", "/info", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        payload = Jason.decode!(body)
+        assert payload["type"] == "allPerpMetas"
+
+        resp = [%{"universe" => [], "marginTables" => [], "collateralToken" => 0}]
+
+        conn
+        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(resp))
+      end)
+
+      assert {:ok, _result} = Node.all_perp_metas()
+    end
+
+    test "all_borrow_lend_reserve_states/0 sends correct payload", %{bypass: bypass} do
+      Bypass.expect(bypass, "POST", "/info", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        payload = Jason.decode!(body)
+        assert payload["type"] == "allBorrowLendReserveStates"
+
+        resp = [[0, %{"borrowYearlyRate" => "0.05", "supplyYearlyRate" => "0.01",
+                       "balance" => "1000.0", "utilization" => "0.5",
+                       "oraclePx" => "1.0", "ltv" => "0.9"}]]
+
+        conn
+        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(resp))
+      end)
+
+      assert {:ok, _result} = Node.all_borrow_lend_reserve_states()
+    end
+
+    test "spot_pair_deploy_auction_status/0 sends correct payload", %{bypass: bypass} do
+      Bypass.expect(bypass, "POST", "/info", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        payload = Jason.decode!(body)
+        assert payload["type"] == "spotPairDeployAuctionStatus"
+
+        resp = %{
+          "startTimeSeconds" => 1_700_000_000,
+          "durationSeconds" => 111_600,
+          "startGas" => "500.0",
+          "currentGas" => "500.0",
+          "endGas" => nil
+        }
+
+        conn
+        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(resp))
+      end)
+
+      assert {:ok, _result} = Node.spot_pair_deploy_auction_status()
+    end
   end
 
   describe "user-param endpoints" do
@@ -121,6 +177,40 @@ defmodule Hyperliquid.NodeTest do
 
       assert {:ok, _result} = Node.open_orders(user)
     end
+
+    test "sub_accounts2/1 sends user in payload", %{bypass: bypass} do
+      user = "0xabcdef1234567890abcdef1234567890abcdef12"
+
+      Bypass.expect(bypass, "POST", "/info", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        payload = Jason.decode!(body)
+        assert payload["type"] == "subAccounts2"
+        assert payload["user"] == user
+
+        conn
+        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.resp(200, Jason.encode!([]))
+      end)
+
+      assert {:ok, _result} = Node.sub_accounts2(user)
+    end
+
+    test "user_dex_abstraction/1 sends user in payload", %{bypass: bypass} do
+      user = "0xabcdef1234567890abcdef1234567890abcdef12"
+
+      Bypass.expect(bypass, "POST", "/info", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        payload = Jason.decode!(body)
+        assert payload["type"] == "userDexAbstraction"
+        assert payload["user"] == user
+
+        conn
+        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(nil))
+      end)
+
+      assert {:ok, _result} = Node.user_dex_abstraction(user)
+    end
   end
 
   describe "user+coin endpoints" do
@@ -149,6 +239,58 @@ defmodule Hyperliquid.NodeTest do
       end)
 
       assert {:ok, _result} = Node.active_asset_data(user, coin)
+    end
+  end
+
+  describe "single-param endpoints" do
+    test "margin_table/1 sends id in payload", %{bypass: bypass} do
+      Bypass.expect(bypass, "POST", "/info", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        payload = Jason.decode!(body)
+        assert payload["type"] == "marginTable"
+        assert payload["id"] == 56
+
+        resp = %{
+          "description" => "tiered 40x",
+          "marginTiers" => [%{"lowerBound" => "0.0", "maxLeverage" => 40}]
+        }
+
+        conn
+        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(resp))
+      end)
+
+      assert {:ok, _result} = Node.margin_table(56)
+    end
+
+    test "aligned_quote_token_info/1 sends token in payload", %{bypass: bypass} do
+      Bypass.expect(bypass, "POST", "/info", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        payload = Jason.decode!(body)
+        assert payload["type"] == "alignedQuoteTokenInfo"
+        assert payload["token"] == 0
+
+        conn
+        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(nil))
+      end)
+
+      assert {:ok, nil} = Node.aligned_quote_token_info(0)
+    end
+
+    test "perp_dex_limits/1 sends dex in payload", %{bypass: bypass} do
+      Bypass.expect(bypass, "POST", "/info", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        payload = Jason.decode!(body)
+        assert payload["type"] == "perpDexLimits"
+        assert payload["dex"] == "hyperliquid"
+
+        conn
+        |> Plug.Conn.put_resp_header("content-type", "application/json")
+        |> Plug.Conn.resp(200, Jason.encode!(nil))
+      end)
+
+      assert {:ok, _result} = Node.perp_dex_limits("hyperliquid")
     end
   end
 

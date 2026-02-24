@@ -8,10 +8,10 @@ defmodule Hyperliquid.Node do
 
   ## Info Endpoints
 
-  Convenience functions are generated for the documented subset of info requests
-  supported by the local info server. Each function sends the request to the
-  node's `/info` endpoint and parses the response using the corresponding
-  endpoint module when available.
+  Convenience functions are generated for the info requests verified to work on
+  the local info server. Each function sends the request to the node's `/info`
+  endpoint and parses the response using the corresponding endpoint module when
+  available.
 
       # Documented endpoints with parsed struct responses
       Hyperliquid.Node.meta()
@@ -53,52 +53,98 @@ defmodule Hyperliquid.Node do
   alias Hyperliquid.Transport.Http
   alias Hyperliquid.Transport.Rpc
 
-  # Documented supported endpoints on the local info server.
-  # Format: {function_name, request_type, endpoint_module, params}
-  # params: [] = no params, [:user] = required user param, etc.
+  # Supported endpoints on the local info server.
+  # Format: {function_name, request_type, endpoint_module, required_params, optional_params}
+  # required_params: [] = no params, [:user] = required user param, etc.
+  # optional_params: [] = none, [:dex] = optional dex keyword arg, etc.
+  #
+  # Endpoints with optional_params get an extra `opts \\ []` argument:
+  #   Node.meta(dex: "some_dex")
+  #   Node.clearinghouse_state("0x...", dex: "some_dex")
   @supported_endpoints [
-    {:meta, "meta", Hyperliquid.Api.Info.Meta, []},
-    {:spot_meta, "spotMeta", Hyperliquid.Api.Info.SpotMeta, []},
-    {:clearinghouse_state, "clearinghouseState", Hyperliquid.Api.Info.ClearinghouseState, [:user]},
-    {:spot_clearinghouse_state, "spotClearinghouseState",
-     Hyperliquid.Api.Info.SpotClearinghouseState, [:user]},
-    {:open_orders, "openOrders", Hyperliquid.Api.Info.OpenOrders, [:user]},
-    {:exchange_status, "exchangeStatus", Hyperliquid.Api.Info.ExchangeStatus, []},
-    {:frontend_open_orders, "frontendOpenOrders", Hyperliquid.Api.Info.FrontendOpenOrders,
-     [:user]},
-    {:liquidatable, "liquidatable", Hyperliquid.Api.Info.Liquidatable, []},
-    {:active_asset_data, "activeAssetData", Hyperliquid.Api.Info.ActiveAssetData, [:user, :coin]},
-    {:max_market_order_ntls, "maxMarketOrderNtls", Hyperliquid.Api.Info.MaxMarketOrderNtls,
-     [:user]},
-    {:vault_summaries, "vaultSummaries", Hyperliquid.Api.Info.VaultSummaries, []},
-    {:user_vault_equities, "userVaultEquities", Hyperliquid.Api.Info.UserVaultEquities, [:user]},
-    {:leading_vaults, "leadingVaults", Hyperliquid.Api.Info.LeadingVaults, []},
-    {:extra_agents, "extraAgents", Hyperliquid.Api.Info.ExtraAgents, [:user]},
-    {:sub_accounts, "subAccounts", Hyperliquid.Api.Info.SubAccounts, [:user]},
-    {:user_fees, "userFees", Hyperliquid.Api.Info.UserFees, [:user]},
-    {:user_rate_limit, "userRateLimit", Hyperliquid.Api.Info.UserRateLimit, [:user]},
-    {:spot_deploy_state, "spotDeployState", Hyperliquid.Api.Info.SpotDeployState, []},
+    # ---- No-param endpoints ----
+    {:meta, "meta", Hyperliquid.Api.Info.Meta, [], [:dex]},
+    {:spot_meta, "spotMeta", Hyperliquid.Api.Info.SpotMeta, [], []},
+    {:all_perp_metas, "allPerpMetas", Hyperliquid.Api.Info.AllPerpMetas, [], []},
+    {:all_borrow_lend_reserve_states, "allBorrowLendReserveStates",
+     Hyperliquid.Api.Info.AllBorrowLendReserveStates, [], []},
+    {:exchange_status, "exchangeStatus", Hyperliquid.Api.Info.ExchangeStatus, [], []},
+    {:liquidatable, "liquidatable", Hyperliquid.Api.Info.Liquidatable, [], []},
+    {:vault_summaries, "vaultSummaries", Hyperliquid.Api.Info.VaultSummaries, [], []},
+    {:leading_vaults, "leadingVaults", Hyperliquid.Api.Info.LeadingVaults, [], []},
+    {:perp_dexs, "perpDexs", Hyperliquid.Api.Info.PerpDexs, [], []},
+    {:perp_categories, "perpCategories", Hyperliquid.Api.Info.PerpCategories, [], []},
     {:perp_deploy_auction_status, "perpDeployAuctionStatus",
-     Hyperliquid.Api.Info.PerpDeployAuctionStatus, []},
-    {:delegations, "delegations", Hyperliquid.Api.Info.Delegations, [:user]},
-    {:delegator_summary, "delegatorSummary", Hyperliquid.Api.Info.DelegatorSummary, [:user]},
-    {:max_builder_fee, "maxBuilderFee", Hyperliquid.Api.Info.MaxBuilderFee, [:user]},
-    {:user_to_multi_sig_signers, "userToMultiSigSigners",
-     Hyperliquid.Api.Info.UserToMultiSigSigners, [:user]},
-    {:user_role, "userRole", Hyperliquid.Api.Info.UserRole, [:user]},
+     Hyperliquid.Api.Info.PerpDeployAuctionStatus, [], []},
     {:perps_at_open_interest_cap, "perpsAtOpenInterestCap",
-     Hyperliquid.Api.Info.PerpsAtOpenInterestCap, []},
-    {:validator_l1_votes, "validatorL1Votes", Hyperliquid.Api.Info.ValidatorL1Votes, []},
-    {:margin_table, "marginTable", Hyperliquid.Api.Info.MarginTable, []},
-    {:perp_dexs, "perpDexs", Hyperliquid.Api.Info.PerpDexs, []},
+     Hyperliquid.Api.Info.PerpsAtOpenInterestCap, [], [:dex]},
+    {:spot_deploy_state, "spotDeployState", Hyperliquid.Api.Info.SpotDeployState, [], []},
+    {:spot_pair_deploy_auction_status, "spotPairDeployAuctionStatus",
+     Hyperliquid.Api.Info.SpotPairDeployAuctionStatus, [], []},
+    {:validator_l1_votes, "validatorL1Votes", Hyperliquid.Api.Info.ValidatorL1Votes, [], []},
+    # ---- User-param endpoints ----
+    {:max_market_order_ntls, "maxMarketOrderNtls", Hyperliquid.Api.Info.MaxMarketOrderNtls,
+     [:user], []},
+    {:clearinghouse_state, "clearinghouseState", Hyperliquid.Api.Info.ClearinghouseState, [:user],
+     [:dex]},
+    {:spot_clearinghouse_state, "spotClearinghouseState",
+     Hyperliquid.Api.Info.SpotClearinghouseState, [:user], []},
+    {:open_orders, "openOrders", Hyperliquid.Api.Info.OpenOrders, [:user], [:dex]},
+    {:frontend_open_orders, "frontendOpenOrders", Hyperliquid.Api.Info.FrontendOpenOrders,
+     [:user], [:dex]},
+    {:extra_agents, "extraAgents", Hyperliquid.Api.Info.ExtraAgents, [:user], []},
+    {:sub_accounts, "subAccounts", Hyperliquid.Api.Info.SubAccounts, [:user], []},
+    {:sub_accounts2, "subAccounts2", Hyperliquid.Api.Info.SubAccounts2, [:user], []},
+    {:user_fees, "userFees", Hyperliquid.Api.Info.UserFees, [:user], []},
+    {:user_rate_limit, "userRateLimit", Hyperliquid.Api.Info.UserRateLimit, [:user], []},
+    {:user_vault_equities, "userVaultEquities", Hyperliquid.Api.Info.UserVaultEquities, [:user],
+     []},
+    {:user_dex_abstraction, "userDexAbstraction", Hyperliquid.Api.Info.UserDexAbstraction,
+     [:user], []},
+    {:user_to_multi_sig_signers, "userToMultiSigSigners",
+     Hyperliquid.Api.Info.UserToMultiSigSigners, [:user], []},
+    {:user_role, "userRole", Hyperliquid.Api.Info.UserRole, [:user], []},
+    {:user_abstraction, "userAbstraction", Hyperliquid.Api.Info.UserAbstraction, [:user], []},
+    {:approved_builders, "approvedBuilders", Hyperliquid.Api.Info.ApprovedBuilders, [:user], []},
+    {:borrow_lend_user_state, "borrowLendUserState", Hyperliquid.Api.Info.BorrowLendUserState,
+     [:user], []},
+    {:delegations, "delegations", Hyperliquid.Api.Info.Delegations, [:user], []},
+    {:delegator_summary, "delegatorSummary", Hyperliquid.Api.Info.DelegatorSummary, [:user], []},
+    {:max_builder_fee, "maxBuilderFee", Hyperliquid.Api.Info.MaxBuilderFee, [:user], []},
+    # ---- User+coin endpoints ----
+    {:active_asset_data, "activeAssetData", Hyperliquid.Api.Info.ActiveAssetData, [:user, :coin],
+     []},
+    # ---- Other single-param endpoints ----
+    {:margin_table, "marginTable", Hyperliquid.Api.Info.MarginTable, [:id], []},
+    {:aligned_quote_token_info, "alignedQuoteTokenInfo",
+     Hyperliquid.Api.Info.AlignedQuoteTokenInfo, [:token], []},
+    {:borrow_lend_reserve_state, "borrowLendReserveState",
+     Hyperliquid.Api.Info.BorrowLendReserveState, [:token], []},
+    {:perp_annotation, "perpAnnotation", Hyperliquid.Api.Info.PerpAnnotation, [:coin], []},
+    {:perp_dex_limits, "perpDexLimits", Hyperliquid.Api.Info.PerpDexLimits, [:dex], []},
+    # ---- Raw (no endpoint module) ----
     # webData2 doesn't compute assetCtxs on node, no dedicated module
-    {:web_data2, "webData2", nil, [:user]}
+    {:web_data2, "webData2", nil, [:user], []}
   ]
 
+  # Builds a payload from a base map + optional keyword args.
+  # Only keys present in `optional_keys` are included; nil values are dropped.
+  defp apply_opts(base, _optional_keys, []), do: base
+
+  defp apply_opts(base, optional_keys, opts) do
+    Enum.reduce(optional_keys, base, fn key, acc ->
+      case Keyword.get(opts, key) do
+        nil -> acc
+        val -> Map.put(acc, key, val)
+      end
+    end)
+  end
+
   # Generate convenience functions from the endpoint list
-  for {func_name, request_type, endpoint_mod, params} <- @supported_endpoints do
-    case params do
-      [] ->
+  for {func_name, request_type, endpoint_mod, required, optional} <- @supported_endpoints do
+    case {required, optional} do
+      # No required params, no optional params
+      {[], []} ->
         @doc "Fetch `#{request_type}` from the local node."
         def unquote(func_name)() do
           with {:ok, data} <- Http.node_info_request(%{type: unquote(request_type)}) do
@@ -106,7 +152,19 @@ defmodule Hyperliquid.Node do
           end
         end
 
-      [:user] ->
+      # No required params, with optional params
+      {[], _} ->
+        @doc "Fetch `#{request_type}` from the local node. Accepts `#{inspect(optional)}` as optional keyword args."
+        def unquote(func_name)(opts \\ []) do
+          payload = apply_opts(%{type: unquote(request_type)}, unquote(optional), opts)
+
+          with {:ok, data} <- Http.node_info_request(payload) do
+            maybe_parse(unquote(endpoint_mod), data)
+          end
+        end
+
+      # User required, no optional params
+      {[:user], []} ->
         @doc "Fetch `#{request_type}` for the given user from the local node."
         def unquote(func_name)(user) do
           with {:ok, data} <-
@@ -115,7 +173,20 @@ defmodule Hyperliquid.Node do
           end
         end
 
-      [:user, :coin] ->
+      # User required, with optional params
+      {[:user], _} ->
+        @doc "Fetch `#{request_type}` for the given user from the local node. Accepts `#{inspect(optional)}` as optional keyword args."
+        def unquote(func_name)(user, opts \\ []) do
+          payload =
+            apply_opts(%{type: unquote(request_type), user: user}, unquote(optional), opts)
+
+          with {:ok, data} <- Http.node_info_request(payload) do
+            maybe_parse(unquote(endpoint_mod), data)
+          end
+        end
+
+      # User + coin required
+      {[:user, :coin], _} ->
         @doc "Fetch `#{request_type}` for the given user and coin from the local node."
         def unquote(func_name)(user, coin) do
           with {:ok, data} <-
@@ -124,6 +195,40 @@ defmodule Hyperliquid.Node do
                    user: user,
                    coin: coin
                  }) do
+            maybe_parse(unquote(endpoint_mod), data)
+          end
+        end
+
+      # Single non-user param, no optional params
+      {[param], []} ->
+        @doc "Fetch `#{request_type}` for the given #{param} from the local node."
+        def unquote(func_name)(unquote(Macro.var(param, nil))) do
+          payload =
+            Map.put(
+              %{type: unquote(request_type)},
+              unquote(param),
+              unquote(Macro.var(param, nil))
+            )
+
+          with {:ok, data} <- Http.node_info_request(payload) do
+            maybe_parse(unquote(endpoint_mod), data)
+          end
+        end
+
+      # Single non-user param, with optional params
+      {[param], _} ->
+        @doc "Fetch `#{request_type}` for the given #{param} from the local node. Accepts `#{inspect(optional)}` as optional keyword args."
+        def unquote(func_name)(unquote(Macro.var(param, nil)), opts \\ []) do
+          base =
+            Map.put(
+              %{type: unquote(request_type)},
+              unquote(param),
+              unquote(Macro.var(param, nil))
+            )
+
+          payload = apply_opts(base, unquote(optional), opts)
+
+          with {:ok, data} <- Http.node_info_request(payload) do
             maybe_parse(unquote(endpoint_mod), data)
           end
         end

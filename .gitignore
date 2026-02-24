@@ -44,3 +44,5 @@ config/prod.secret.exs
 # Debug test files (local only)
 /test/debug/
 notebooks/exchange_testing.livemd
+scripts/arb_analysis.exs
+.claude/skills/release.md

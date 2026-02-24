@@ -453,6 +453,67 @@ defmodule Hyperliquid.Config do
   end
 
   @doc """
+  Returns the maximum number of simultaneous WebSocket connections.
+
+  Hyperliquid enforces a limit of 10 concurrent WebSocket connections per client.
+  The manager will return `{:error, :connection_limit_exceeded}` when this is reached.
+
+  ## Configuration
+
+      config :hyperliquid,
+        ws_max_connections: 10
+  """
+  def ws_max_connections do
+    Application.get_env(:hyperliquid, :ws_max_connections, 10)
+  end
+
+  @doc """
+  Returns the maximum number of new WebSocket connections allowed per minute.
+
+  Hyperliquid enforces a rate limit of 30 new connections per minute per client.
+  The manager will return `{:error, :connection_rate_exceeded}` when this is reached.
+
+  ## Configuration
+
+      config :hyperliquid,
+        ws_max_connections_per_minute: 30
+  """
+  def ws_max_connections_per_minute do
+    Application.get_env(:hyperliquid, :ws_max_connections_per_minute, 30)
+  end
+
+  @doc """
+  Returns the maximum number of simultaneous WebSocket subscriptions.
+
+  Hyperliquid enforces a limit of 1000 concurrent subscriptions per client.
+  The manager will return `{:error, :subscription_limit_exceeded}` when this is reached.
+
+  ## Configuration
+
+      config :hyperliquid,
+        ws_max_subscriptions: 1000
+  """
+  def ws_max_subscriptions do
+    Application.get_env(:hyperliquid, :ws_max_subscriptions, 1000)
+  end
+
+  @doc """
+  Returns the maximum number of unique users allowed across user-specific WebSocket subscriptions.
+
+  Hyperliquid enforces a limit of 10 unique users across all user-grouped subscriptions
+  (e.g., userFills, userFundings, orderUpdates). The manager will return
+  `{:error, :user_limit_exceeded}` when subscribing would exceed this limit.
+
+  ## Configuration
+
+      config :hyperliquid,
+        ws_max_users: 10
+  """
+  def ws_max_users do
+    Application.get_env(:hyperliquid, :ws_max_users, 10)
+  end
+
+  @doc """
   Returns the URL for a local Hyperliquid node.
 
   Local nodes can serve EVM JSON-RPC (`/evm`) and Info API (`/info`) endpoints

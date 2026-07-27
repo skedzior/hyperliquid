@@ -1086,10 +1086,14 @@ defmodule Hyperliquid.Transport.Http do
   defp transform_keys(data), do: data
 
   defp to_snake_case(key) when is_binary(key) do
-    key
-    |> String.replace(~r/([A-Z])/, "_\\1")
-    |> String.downcase()
-    |> String.trim_leading("_")
+    if String.match?(key, ~r/^[A-Z]$/) do
+      key
+    else
+      key
+      |> String.replace(~r/([A-Z])/, "_\\1")
+      |> String.downcase()
+      |> String.trim_leading("_")
+    end
   end
 
   defp to_snake_case(key) when is_atom(key) do

@@ -40,7 +40,7 @@ defmodule Hyperliquid.Api.Subscription.ClearinghouseState do
     changeset =
       {%{}, types}
       |> cast(params, Map.keys(types))
-      |> validate_required([:user, :dex])
+      |> validate_required([:user])
       |> validate_format(:user, ~r/^0x[0-9a-fA-F]{40}$/)
 
     if changeset.valid? do
@@ -48,7 +48,7 @@ defmodule Hyperliquid.Api.Subscription.ClearinghouseState do
        %{
          type: "clearinghouseState",
          user: get_change(changeset, :user),
-         dex: get_change(changeset, :dex)
+         dex: get_change(changeset, :dex) || ""
        }}
     else
       {:error, changeset}

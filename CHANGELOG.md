@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.4.1
+
+### Fixed
+
+- `outcome_sz_decimals` defaulted to `2`, but outcome assets take whole-number
+  sizes only. Any size the formatter emitted with decimals was rejected by the
+  exchange with "Order has invalid size", so outcome orders could not be placed
+  with the default. Now `0`.
+
+  Confirmed on testnet against asset `100102190`: sizes of `1000` and `1001`
+  passed validation (IOC, no match), while `1000.5` and `1000.05` were both
+  rejected. The docs do not publish this — neither the HIP-4 page nor the
+  asset-ids page mentions `szDecimals` for outcomes, `outcomeMeta` omits it, and
+  outcome tokens are absent from `spotMeta`.
+
 ## 0.4.0
 
 ### Added
@@ -14,9 +29,11 @@
   expand to exactly the 618 `#`-prefixed coins `allMids` returns.
 - `Cache.outcome_coin/2`, `outcome_asset/2`, `outcome_and_side/1`,
   `outcome_coin?/1`, `outcome_asset?/1`, `outcome_asset_base/0`.
-- `config :hyperliquid, outcome_sz_decimals: N` (default 2). No endpoint
-  publishes `szDecimals` for outcomes, so this is configurable rather than
-  silently guessed; confirm it against a real outcome order before relying on it.
+- `config :hyperliquid, outcome_sz_decimals: N` (default 0). Outcome sizes are
+  whole numbers, confirmed on testnet: sizes of 1000 and 1001 passed validation
+  while 1000.5 and 1000.05 were rejected with "Order has invalid size." No
+  endpoint publishes this, so it stays configurable in case it varies per outcome
+  or changes on a network upgrade.
 - Six further node info endpoints, verified against a live node:
   `gossipPriorityAuctionStatus`, `perpConciseAnnotations`, `outcomeMeta`,
   `outcomeTemplates`, `perpDexStatus`, `settledOutcome`.

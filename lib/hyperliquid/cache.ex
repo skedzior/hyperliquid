@@ -689,12 +689,15 @@ defmodule Hyperliquid.Cache do
     end
   end
 
-  # outcomeMeta gives no szDecimals, and outcome tokens are absent from spotMeta,
-  # so there is no authoritative source for it. Configurable rather than guessed
-  # silently, since an over-large value makes the exchange reject the order and an
-  # under-large one truncates the size.
+  # Outcome assets take whole-number sizes only. Confirmed on testnet against
+  # asset 100102190: sizes of 1000 and 1001 passed validation, while 1000.5 and
+  # 1000.05 were both rejected with "Order has invalid size."
+  #
+  # No endpoint publishes this — outcomeMeta omits szDecimals and outcome tokens
+  # are absent from spotMeta — so it stays configurable in case it varies per
+  # outcome or changes on a network upgrade.
   defp outcome_sz_decimals do
-    Application.get_env(:hyperliquid, :outcome_sz_decimals, 2)
+    Application.get_env(:hyperliquid, :outcome_sz_decimals, 0)
   end
 
   defp build_outcome_maps(outcome_meta) do

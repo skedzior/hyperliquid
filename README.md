@@ -28,7 +28,7 @@ Add `hyperliquid` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:hyperliquid, "~> 0.4.0"}
+    {:hyperliquid, "~> 0.4.1"}
   ]
 end
 ```
@@ -53,7 +53,7 @@ Enable database features by setting `enable_db: true` and adding the required de
 # mix.exs
 defp deps do
   [
-    {:hyperliquid, "~> 0.4.0"},
+    {:hyperliquid, "~> 0.4.1"},
     # Required when enable_db: true
     {:phoenix_ecto, "~> 4.5"},
     {:ecto_sql, "~> 3.10"},
@@ -128,11 +128,11 @@ config :hyperliquid,
   # either works, as long as it is used consistently.
   signature_chain_id: 421_614,
 
-  # szDecimals for HIP-4 outcome assets. outcomeMeta does not publish this and
-  # outcome tokens are absent from spotMeta, so there is no authoritative source.
-  # Too large a value makes the exchange reject the order, too small truncates
-  # the size — confirm against a real outcome order before relying on it.
-  outcome_sz_decimals: 2
+  # szDecimals for HIP-4 outcome assets. Outcome sizes are whole numbers —
+  # confirmed on testnet, where 1000 was accepted and 1000.5 was rejected with
+  # "Order has invalid size." No endpoint publishes this, so it stays
+  # configurable in case it varies per outcome or changes on an upgrade.
+  outcome_sz_decimals: 0
 ```
 
 ### HIP-4 prediction markets
@@ -581,7 +581,7 @@ Use Hyperliquid in Livebook for interactive trading and analysis:
 
 ```elixir
 Mix.install([
-  {:hyperliquid, "~> 0.4.0"}
+  {:hyperliquid, "~> 0.4.1"}
 ],
 config: [
   hyperliquid: [
@@ -598,7 +598,7 @@ alias Hyperliquid.Api.Info.AllMids
 
 ```elixir
 Mix.install([
-  {:hyperliquid, "~> 0.4.0"}
+  {:hyperliquid, "~> 0.4.1"}
 ],
 config: [
   hyperliquid: [

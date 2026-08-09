@@ -7,12 +7,12 @@ Elixir SDK for the Hyperliquid decentralized exchange with DSL-based API endpoin
 
 ## Overview
 
-Hyperliquid provides a comprehensive, type-safe interface to the Hyperliquid DEX. The v0.2.0 release introduces a modern DSL-based architecture that eliminates boilerplate while providing response validation, automatic caching, and optional database persistence.
+Hyperliquid provides a comprehensive, type-safe interface to the Hyperliquid DEX. The DSL-based architecture eliminates boilerplate while providing response validation, automatic caching, and optional database persistence. Endpoint coverage tracks the nktkas TypeScript SDK, including HIP-4 prediction markets.
 
 ## Features
 
 - **DSL-based endpoint definitions** - Clean, declarative API with automatic function generation
-- **125+ typed endpoints** - 62 Info endpoints, 38 Exchange endpoints, 26 WebSocket subscriptions
+- **165+ typed endpoints** - 78 Info endpoints, 60 Exchange actions, 31 WebSocket subscriptions
 - **Ecto schema validation** - Built-in response validation and type safety
 - **WebSocket connection pooling** - Efficient connection management with automatic reconnection
 - **Cachex-based caching** - Fast in-memory asset metadata and mid price lookups
@@ -27,7 +27,7 @@ Add `hyperliquid` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:hyperliquid, "~> 0.2.0"}
+    {:hyperliquid, "~> 0.3.1"}
   ]
 end
 ```
@@ -52,7 +52,7 @@ Enable database features by setting `enable_db: true` and adding the required de
 # mix.exs
 defp deps do
   [
-    {:hyperliquid, "~> 0.2.0"},
+    {:hyperliquid, "~> 0.3.1"},
     # Required when enable_db: true
     {:phoenix_ecto, "~> 4.5"},
     {:ecto_sql, "~> 3.10"},
@@ -109,7 +109,49 @@ config :hyperliquid,
   debug: false,
 
   # Private key
-  private_key: "YOUR_PRIVATE_KEY_HERE"
+  private_key: "YOUR_PRIVATE_KEY_HERE",
+
+  # EIP-712 domain chainId for user-signed actions (withdrawals, transfers,
+  # agent approvals). Must match the signatureChainId sent in the action body —
+  # the exchange rebuilds the domain from it to recover the signer, so if the two
+  # disagree it recovers the wrong address and rejects the action. Both are read
+  # from here, so they cannot drift.
+  #
+  # Defaults to 421_614 ("0x66eee"), matching the official Python SDK and the
+  # nktkas TypeScript SDK. The Hyperliquid frontend uses 42_161 ("0xa4b1");
+  # either works, as long as it is used consistently.
+  signature_chain_id: 421_614,
+
+  # szDecimals for HIP-4 outcome assets. outcomeMeta does not publish this and
+  # outcome tokens are absent from spotMeta, so there is no authoritative source.
+  # Too large a value makes the exchange reject the order, too small truncates
+  # the size — confirm against a real outcome order before relying on it.
+  outcome_sz_decimals: 2
+```
+
+### HIP-4 prediction markets
+
+Outcome assets use their own encoding, derived from an outcome id plus a binary
+side as `outcome * 10 + side`:
+
+| representation | form | example |
+| --- | --- | --- |
+| spot coin | `#<encoding>` | `#70020` |
+| token name | `+<encoding>` | `+70020` |
+| asset ID | `100_000_000 + encoding` | `100070020` |
+
+They appear in neither `spotMeta`'s universe nor its token list, so the cache
+resolves them from `outcomeMeta`:
+
+```elixir
+Hyperliquid.Cache.outcome_coin(7002, 0)      # => "#70020"
+Hyperliquid.Cache.outcome_asset(7002, 0)     # => 100070020
+Hyperliquid.Cache.outcome_and_side("#70020") # => {:ok, {7002, 0}}
+Hyperliquid.Cache.asset_from_coin("#70020")  # => 100070020
+
+# Outcome coins work anywhere a coin is accepted
+Hyperliquid.Api.Info.L2Book.request("#70020")
+Hyperliquid.Api.Exchange.Order.limit_order("#70020", true, "0.5", "1")
 ```
 
 ## Quick Start
@@ -278,7 +320,7 @@ The Info API provides read-only market and account information. All endpoints ar
 - `Delegations` - User delegations
 - `DelegatorRewards` - Delegation rewards
 
-See the [HexDocs](https://hexdocs.pm/hyperliquid) for the complete list of 62 Info endpoints.
+See the [HexDocs](https://hexdocs.pm/hyperliquid) for the complete list of 78 Info endpoints.
 
 ### Exchange API (Trading Operations)
 
@@ -301,7 +343,7 @@ The Exchange API handles all trading operations. All endpoints are located in `H
 - `CreateVault` - Create a new vault
 - `VaultTransfer` - Vault deposits/withdrawals
 
-See the [HexDocs](https://hexdocs.pm/hyperliquid) for the complete list of 38 Exchange endpoints.
+See the [HexDocs](https://hexdocs.pm/hyperliquid) for the complete list of 60 Exchange actions.
 
 ### Subscription API (Real-time Updates)
 
@@ -323,7 +365,7 @@ The Subscription API provides WebSocket channels for real-time data. All endpoin
 - `ExplorerBlock` - New blocks (shared connection)
 - `ExplorerTxs` - Transactions (shared connection)
 
-See the [HexDocs](https://hexdocs.pm/hyperliquid) for the complete list of 26 subscription channels.
+See the [HexDocs](https://hexdocs.pm/hyperliquid) for the complete list of 31 subscription channels.
 
 ## Endpoint DSL
 
@@ -533,7 +575,7 @@ Use Hyperliquid in Livebook for interactive trading and analysis:
 
 ```elixir
 Mix.install([
-  {:hyperliquid, "~> 0.2.0"}
+  {:hyperliquid, "~> 0.3.1"}
 ],
 config: [
   hyperliquid: [
@@ -550,7 +592,7 @@ alias Hyperliquid.Api.Info.AllMids
 
 ```elixir
 Mix.install([
-  {:hyperliquid, "~> 0.2.0"}
+  {:hyperliquid, "~> 0.3.1"}
 ],
 config: [
   hyperliquid: [

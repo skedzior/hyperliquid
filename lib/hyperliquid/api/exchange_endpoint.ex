@@ -156,8 +156,14 @@ defmodule Hyperliquid.Api.ExchangeEndpoint do
             metadata
           )
 
+          # The connection id is the keccak of the action's msgpack encoding, so
+          # field order is part of the preimage. Canonicalize once and use the
+          # same value for both the signature and the request body, otherwise the
+          # bytes we hashed and the bytes we send can disagree.
+          canonical_action = Hyperliquid.Api.ActionEncoder.canonicalize(action)
+
           result =
-            with {:ok, action_json} <- Jason.encode(action),
+            with {:ok, action_json} <- Jason.encode(canonical_action),
                  {:ok, signature} <-
                    sign_l1_action(
                      private_key,
@@ -168,7 +174,7 @@ defmodule Hyperliquid.Api.ExchangeEndpoint do
                      is_mainnet
                    ) do
               Hyperliquid.Transport.Http.exchange_request(
-                action,
+                canonical_action,
                 signature,
                 nonce,
                 vault_address,
@@ -278,8 +284,14 @@ defmodule Hyperliquid.Api.ExchangeEndpoint do
             metadata
           )
 
+          # The connection id is the keccak of the action's msgpack encoding, so
+          # field order is part of the preimage. Canonicalize once and use the
+          # same value for both the signature and the request body, otherwise the
+          # bytes we hashed and the bytes we send can disagree.
+          canonical_action = Hyperliquid.Api.ActionEncoder.canonicalize(action)
+
           result =
-            with {:ok, action_json} <- Jason.encode(action),
+            with {:ok, action_json} <- Jason.encode(canonical_action),
                  {:ok, signature} <-
                    sign_l1_action(
                      private_key,
@@ -290,7 +302,7 @@ defmodule Hyperliquid.Api.ExchangeEndpoint do
                      is_mainnet
                    ) do
               Hyperliquid.Transport.Http.exchange_request(
-                action,
+                canonical_action,
                 signature,
                 nonce,
                 vault_address,

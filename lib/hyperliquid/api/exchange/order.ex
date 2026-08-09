@@ -10,6 +10,7 @@ defmodule Hyperliquid.Api.Exchange.Order do
   require Logger
 
   alias Hyperliquid.{Cache, Config, Signer, Utils}
+  alias Hyperliquid.Api.ActionEncoder
   alias Hyperliquid.Utils.Format
   alias Hyperliquid.Transport.Http
 
@@ -511,7 +512,8 @@ defmodule Hyperliquid.Api.Exchange.Order do
     vault_address = Keyword.get(opts, :vault_address)
     builder = Keyword.get(opts, :builder)
 
-    action = build_action(orders, grouping, builder)
+    # Field order is part of the signed preimage — see Hyperliquid.Api.ActionEncoder.
+    action = orders |> build_action(grouping, builder) |> ActionEncoder.canonicalize()
     nonce = generate_nonce()
     expires_after = Config.expires_after()
 

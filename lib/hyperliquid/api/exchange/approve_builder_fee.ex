@@ -5,9 +5,17 @@ defmodule Hyperliquid.Api.Exchange.ApproveBuilderFee do
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
-  alias Hyperliquid.{Config, Signer, Utils}
-  alias Hyperliquid.Api.Exchange.KeyUtils
+  alias Hyperliquid.Config
+  alias Hyperliquid.Api.Exchange.{KeyUtils, UserSigned}
   alias Hyperliquid.Transport.Http
+
+  @primary_type "HyperliquidTransaction:ApproveBuilderFee"
+  @types [
+    %{name: "hyperliquidChain", type: "string"},
+    %{name: "maxFeeRate", type: "string"},
+    %{name: "builder", type: "address"},
+    %{name: "nonce", type: "uint64"}
+  ]
 
   @doc """
   Approve a builder to charge fees.
@@ -38,23 +46,28 @@ defmodule Hyperliquid.Api.Exchange.ApproveBuilderFee do
     nonce = generate_nonce()
     is_mainnet = Config.mainnet?()
 
-    sig = Signer.sign_approve_builder_fee(private_key, builder, max_fee_rate, nonce, is_mainnet)
+    hyperliquid_chain = if(is_mainnet, do: "Mainnet", else: "Testnet")
 
-    action = %{
-      type: "approveBuilderFee",
-      hyperliquidChain: if(is_mainnet, do: "Mainnet", else: "Testnet"),
-      signatureChainId: signature_chain_id(is_mainnet),
-      builder: builder,
+    message = %{
+      hyperliquidChain: hyperliquid_chain,
       maxFeeRate: max_fee_rate,
+      builder: builder,
       nonce: nonce
     }
 
-    signature = %{r: sig["r"], s: sig["s"], v: sig["v"]}
+    with {:ok, signature} <- UserSigned.sign(private_key, @primary_type, @types, message) do
+      action = %{
+        type: "approveBuilderFee",
+        hyperliquidChain: hyperliquid_chain,
+        signatureChainId: UserSigned.signature_chain_id(),
+        builder: builder,
+        maxFeeRate: max_fee_rate,
+        nonce: nonce
+      }
 
-    Http.user_signed_request(action, signature, nonce, opts)
+      Http.user_signed_request(action, signature, nonce, opts)
+    end
   end
-
-  defp signature_chain_id(_is_mainnet), do: Utils.from_int(42_161)
 
   defp generate_nonce do
     System.system_time(:millisecond)

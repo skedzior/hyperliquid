@@ -114,6 +114,41 @@ defmodule Hyperliquid.Config do
   end
 
   @doc """
+  Returns the chain id used in the EIP-712 domain when signing user-signed
+  actions, as an integer.
+
+  This value has to appear in two places that must always agree: the `chainId`
+  of the EIP-712 domain the signature is produced over, and the
+  `signatureChainId` field sent in the action body. The exchange rebuilds the
+  domain from `signatureChainId` to recover the signer, so if the two drift the
+  API recovers the wrong address and rejects the action. Reading both from here
+  is what keeps them in step — they were previously hardcoded in the Rust NIF
+  and in a dozen Elixir modules independently.
+
+  The value itself is not constrained by the exchange; any chain id works as
+  long as both sides use the same one. The default is `421_614` (`"0x66eee"`,
+  Arbitrum Sepolia), matching the official Python SDK and the nktkas TypeScript
+  SDK, so signatures produced here are byte-comparable with theirs.
+
+  Override with `config :hyperliquid, signature_chain_id: 42_161`.
+  """
+  @default_signature_chain_id 421_614
+
+  @spec signature_chain_id() :: non_neg_integer()
+  def signature_chain_id do
+    Application.get_env(:hyperliquid, :signature_chain_id, @default_signature_chain_id)
+  end
+
+  @doc """
+  Returns `signature_chain_id/0` as the lowercase hex string used for the
+  `signatureChainId` field (e.g. `"0xa4b1"`).
+  """
+  @spec signature_chain_id_hex() :: String.t()
+  def signature_chain_id_hex do
+    Hyperliquid.Utils.from_int(signature_chain_id())
+  end
+
+  @doc """
   Returns whether debug logging is enabled. Defaults to false.
   Controlled via `config :hyperliquid, debug: true/false` or HL_DEBUG env var.
   """

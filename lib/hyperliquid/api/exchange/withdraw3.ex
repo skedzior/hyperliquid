@@ -5,9 +5,17 @@ defmodule Hyperliquid.Api.Exchange.Withdraw3 do
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
-  alias Hyperliquid.{Config, Signer, Utils}
-  alias Hyperliquid.Api.Exchange.KeyUtils
+  alias Hyperliquid.Config
+  alias Hyperliquid.Api.Exchange.{KeyUtils, UserSigned}
   alias Hyperliquid.Transport.Http
+
+  @primary_type "HyperliquidTransaction:Withdraw"
+  @types [
+    %{name: "hyperliquidChain", type: "string"},
+    %{name: "destination", type: "string"},
+    %{name: "amount", type: "string"},
+    %{name: "time", type: "uint64"}
+  ]
 
   @doc """
   Initiate a withdrawal request.
@@ -39,23 +47,28 @@ defmodule Hyperliquid.Api.Exchange.Withdraw3 do
     time = generate_nonce()
     is_mainnet = Config.mainnet?()
 
-    sig = Signer.sign_withdraw3(private_key, destination, amount, time, is_mainnet)
+    hyperliquid_chain = if(is_mainnet, do: "Mainnet", else: "Testnet")
 
-    action = %{
-      type: "withdraw3",
-      hyperliquidChain: if(is_mainnet, do: "Mainnet", else: "Testnet"),
-      signatureChainId: signature_chain_id(is_mainnet),
+    message = %{
+      hyperliquidChain: hyperliquid_chain,
       destination: destination,
       amount: amount,
       time: time
     }
 
-    signature = %{r: sig["r"], s: sig["s"], v: sig["v"]}
+    with {:ok, signature} <- UserSigned.sign(private_key, @primary_type, @types, message) do
+      action = %{
+        type: "withdraw3",
+        hyperliquidChain: hyperliquid_chain,
+        signatureChainId: UserSigned.signature_chain_id(),
+        destination: destination,
+        amount: amount,
+        time: time
+      }
 
-    Http.user_signed_request(action, signature, time, opts)
+      Http.user_signed_request(action, signature, time, opts)
+    end
   end
-
-  defp signature_chain_id(_is_mainnet), do: Utils.from_int(42_161)
 
   defp generate_nonce do
     System.system_time(:millisecond)

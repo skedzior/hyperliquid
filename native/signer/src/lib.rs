@@ -641,9 +641,16 @@ fn sign_exchange_action_ex<'a>(
 }
 
 fn chain(is_mainnet: bool) -> (u64, String) {
-    // Hyperliquid uses chainId 42161 (Arbitrum One) for BOTH mainnet and testnet.
-    // The network distinction is conveyed via the hyperliquidChain field.
-    let chain_id = 42161u64;
+    // The EIP-712 domain chainId for user-signed actions. The exchange rebuilds
+    // the domain from the action's signatureChainId to recover the signer, so
+    // this only has to agree with whatever the caller sends there — it is not
+    // the network selector. The network distinction is carried by
+    // hyperliquidChain.
+    //
+    // 421614 ("0x66eee") matches the official Python SDK and the nktkas
+    // TypeScript SDK, so signatures are byte-comparable with both. Keep this in
+    // step with Hyperliquid.Config.signature_chain_id/0.
+    let chain_id = 421614u64;
     let hyperliquid_chain = if is_mainnet { "Mainnet" } else { "Testnet" }.to_string();
     (chain_id, hyperliquid_chain)
 }

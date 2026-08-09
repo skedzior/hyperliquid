@@ -13,7 +13,7 @@ defmodule Hyperliquid.Api.Exchange.StakingLinkDisableTradingUser do
       {:ok, result} = StakingLinkDisableTradingUser.request("0xabc...")
   """
 
-  alias Hyperliquid.{Config, Signer, Utils}
+  alias Hyperliquid.{Config, Signer}
   alias Hyperliquid.Transport.Http
 
   @primary_type "HyperliquidTransaction:StakingLinkDisableTradingUser"
@@ -46,7 +46,7 @@ defmodule Hyperliquid.Api.Exchange.StakingLinkDisableTradingUser do
     domain = %{
       name: "HyperliquidSignTransaction",
       version: "1",
-      chainId: 42_161,
+      chainId: Hyperliquid.Config.signature_chain_id(),
       verifyingContract: "0x0000000000000000000000000000000000000000"
     }
 
@@ -79,7 +79,7 @@ defmodule Hyperliquid.Api.Exchange.StakingLinkDisableTradingUser do
           action =
             Jason.OrderedObject.new([
               {:type, "stakingLinkDisableTradingUser"},
-              {:signatureChainId, Utils.from_int(42_161)},
+              {:signatureChainId, Hyperliquid.Config.signature_chain_id_hex()},
               {:hyperliquidChain, hyperliquid_chain},
               {:tradingUser, trading_user},
               {:nonce, nonce}

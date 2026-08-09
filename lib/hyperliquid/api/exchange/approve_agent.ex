@@ -8,9 +8,17 @@ defmodule Hyperliquid.Api.Exchange.ApproveAgent do
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
-  alias Hyperliquid.{Config, Signer, Utils}
-  alias Hyperliquid.Api.Exchange.KeyUtils
+  alias Hyperliquid.{Config, Signer}
+  alias Hyperliquid.Api.Exchange.{KeyUtils, UserSigned}
   alias Hyperliquid.Transport.Http
+
+  @primary_type "HyperliquidTransaction:ApproveAgent"
+  @types [
+    %{name: "hyperliquidChain", type: "string"},
+    %{name: "agentAddress", type: "address"},
+    %{name: "agentName", type: "string"},
+    %{name: "nonce", type: "uint64"}
+  ]
 
   # ===================== Types =====================
 
@@ -80,7 +88,7 @@ defmodule Hyperliquid.Api.Exchange.ApproveAgent do
     action = %{
       type: "approveAgent",
       hyperliquidChain: if(is_mainnet, do: "Mainnet", else: "Testnet"),
-      signatureChainId: Utils.from_int(42_161),
+      signatureChainId: UserSigned.signature_chain_id(),
       agentAddress: agent_address,
       nonce: nonce
     }
@@ -95,15 +103,16 @@ defmodule Hyperliquid.Api.Exchange.ApproveAgent do
   # ===================== Signing =====================
 
   defp sign_approve(private_key, agent_address, agent_name, nonce) do
-    is_mainnet = Config.mainnet?()
+    message = %{
+      hyperliquidChain: UserSigned.hyperliquid_chain(),
+      agentAddress: agent_address,
+      # An unnamed agent signs over the empty string, which is also how the NIF
+      # decoded a nil name.
+      agentName: agent_name || "",
+      nonce: nonce
+    }
 
-    case Signer.sign_approve_agent(private_key, agent_address, agent_name, nonce, is_mainnet) do
-      %{"r" => r, "s" => s, "v" => v} ->
-        {:ok, %{r: r, s: s, v: v}}
-
-      error ->
-        {:error, {:signing_error, error}}
-    end
+    UserSigned.sign(private_key, @primary_type, @types, message)
   end
 
   defp generate_nonce do

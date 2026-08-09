@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.3.1
+
+### Changed
+
+- **User-signed actions now sign with `signatureChainId` `0x66eee` (421614).**
+  The EIP-712 domain's `chainId` and the action's `signatureChainId` must agree,
+  because the exchange rebuilds the domain from `signatureChainId` to recover the
+  signer. They did agree before, at `0xa4b1` (42161), so signatures verified —
+  but that diverged from the official Python SDK and the nktkas TypeScript SDK,
+  which both use `0x66eee`. Signatures are now byte-comparable with both.
+
+  Both values are accepted by the exchange; only self-consistency matters. The
+  Hyperliquid frontend itself sends `0xa4b1` (see
+  `test/debug/send_asset_debug_test.exs`, built from captured payloads). Set
+  `config :hyperliquid, signature_chain_id: 42_161` to restore the previous
+  behaviour.
+
+### Fixed
+
+- The `usdSend` EIP-712 test vector now passes. It had asserted the reference
+  SDKs' `0x66eee` signature while the library signed with `0xa4b1`.
+
+### Added
+
+- `Hyperliquid.Config.signature_chain_id/0` and `signature_chain_id_hex/0` — a
+  single source of truth for a value that was previously hardcoded in the Rust
+  NIF and in a dozen Elixir modules independently. That duplication is what
+  allowed the domain and `signatureChainId` to drift apart before `e0e67bf`.
+- `Hyperliquid.Api.Exchange.UserSigned` — shared EIP-712 domain and signing for
+  user-signed actions. The five actions that previously signed through
+  specialized Rust NIFs (`usdSend`, `withdraw3`, `spotSend`, `approveAgent`,
+  `approveBuilderFee`) now go through it, so configuration reaches them.
+  Verified byte-identical to the NIF path before switching.
+
+### Upgrade notes
+
+Precompiled NIFs are rebuilt for this release: the Rust `chain/1` default moved
+to 421614 so the standalone `Signer.sign_*` functions stay in step with
+`Config.signature_chain_id/0`.
+
 ## 0.3.0
 
 ### Fixed

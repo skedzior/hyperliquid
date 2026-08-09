@@ -5,7 +5,7 @@ defmodule Hyperliquid.Api.Exchange.SendToEvmWithData do
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
-  alias Hyperliquid.{Config, Utils}
+  alias Hyperliquid.Config
   alias Hyperliquid.Api.Exchange.KeyUtils
   alias Hyperliquid.Transport.Http
 
@@ -51,7 +51,7 @@ defmodule Hyperliquid.Api.Exchange.SendToEvmWithData do
     domain = %{
       name: "HyperliquidSignTransaction",
       version: "1",
-      chainId: 42_161,
+      chainId: Hyperliquid.Config.signature_chain_id(),
       verifyingContract: "0x0000000000000000000000000000000000000000"
     }
 
@@ -97,7 +97,7 @@ defmodule Hyperliquid.Api.Exchange.SendToEvmWithData do
       action =
         Jason.OrderedObject.new([
           {:type, "sendToEvmWithData"},
-          {:signatureChainId, signature_chain_id()},
+          {:signatureChainId, Hyperliquid.Config.signature_chain_id_hex()},
           {:hyperliquidChain, if(is_mainnet, do: "Mainnet", else: "Testnet")},
           {:token, token},
           {:amount, amount},
@@ -113,8 +113,6 @@ defmodule Hyperliquid.Api.Exchange.SendToEvmWithData do
       Http.user_signed_request(action, signature, nonce, opts)
     end
   end
-
-  defp signature_chain_id, do: Utils.from_int(42_161)
 
   defp generate_nonce do
     System.system_time(:millisecond)

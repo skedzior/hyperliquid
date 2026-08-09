@@ -194,7 +194,7 @@ defmodule Hyperliquid.Api.Exchange.Batch4ActionsTest do
       assert action["type"] == "stakingLinkDisableTradingUser"
       assert action["tradingUser"] == @address
       assert action["hyperliquidChain"] in ["Mainnet", "Testnet"]
-      assert action["signatureChainId"] == "0xa4b1"
+      assert action["signatureChainId"] == Hyperliquid.Config.signature_chain_id_hex()
       assert is_integer(action["nonce"])
     end
 

@@ -5,7 +5,7 @@ defmodule Hyperliquid.Api.Exchange.SendAsset do
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#send-asset
   """
 
-  alias Hyperliquid.{Config, Signer, Utils}
+  alias Hyperliquid.{Config, Signer}
   alias Hyperliquid.Api.Exchange.KeyUtils
   alias Hyperliquid.Transport.Http
 
@@ -76,7 +76,7 @@ defmodule Hyperliquid.Api.Exchange.SendAsset do
     action =
       Jason.OrderedObject.new([
         {:type, "sendAsset"},
-        {:signatureChainId, signature_chain_id(is_mainnet)},
+        {:signatureChainId, Hyperliquid.Config.signature_chain_id_hex()},
         {:hyperliquidChain, if(is_mainnet, do: "Mainnet", else: "Testnet")},
         {:destination, destination},
         {:sourceDex, source_dex},
@@ -108,7 +108,7 @@ defmodule Hyperliquid.Api.Exchange.SendAsset do
     domain = %{
       name: "HyperliquidSignTransaction",
       version: "1",
-      chainId: 42_161,
+      chainId: Hyperliquid.Config.signature_chain_id(),
       verifyingContract: "0x0000000000000000000000000000000000000000"
     }
 
@@ -155,7 +155,6 @@ defmodule Hyperliquid.Api.Exchange.SendAsset do
 
   # Hyperliquid uses signatureChainId 42161 (Arbitrum One) for BOTH mainnet and testnet.
   # The network distinction is conveyed via the hyperliquidChain field ("Mainnet"/"Testnet").
-  defp signature_chain_id(_is_mainnet), do: Utils.from_int(42_161)
 
   defp generate_nonce do
     System.system_time(:millisecond)

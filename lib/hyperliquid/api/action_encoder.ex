@@ -30,10 +30,17 @@ defmodule Hyperliquid.Api.ActionEncoder do
   so unrecognized actions still encode deterministically even when their canonical
   order is unknown.
 
-  The ranking is taken from the reference Python SDK
+  The trading-path ranking is taken from the reference Python SDK
   (`hyperliquid/utils/signing.py` — `order_wires_to_order_action/3`,
   `order_request_to_order_wire/2`, `order_type_to_wire/1`) and verified against it
   by `test/api/action_encoder_test.exs`.
+
+  Keys for the newer actions (HIP-4 outcomes, gossip priority, agent asset
+  transfers) are ordered to match the field order declared by the nktkas
+  TypeScript SDK's request schemas, which is the order its own `canonicalize`
+  emits. Those have no published reference hashes to check against, so unlike the
+  trading path they are not verified end to end — they are as good as that
+  schema.
   """
 
   # Ordered by rank. Keys absent from this list sort last, lexicographically.
@@ -52,6 +59,13 @@ defmodule Hyperliquid.Api.ActionEncoder do
     limit trigger
     tif
     isMarket triggerPx tpsl
+    activate deactivate venueName
+    splitOutcome mergeOutcome mergeQuestion negateOutcome
+    question outcome
+    destination sourceDex destinationDex token role input create
+    dex ntl isDeposit
+    slotId ip maxGas
+    amount fromSubAccount nonce
   )
 
   @ranks @field_order |> Enum.with_index() |> Map.new()

@@ -285,5 +285,4 @@ defmodule Hyperliquid.Api.Subscription.WebData2 do
       {:ok, request}
     end
   end
-
 end

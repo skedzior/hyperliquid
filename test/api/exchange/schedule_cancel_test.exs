@@ -28,7 +28,10 @@ defmodule Hyperliquid.Api.Exchange.ScheduleCancelTest do
         assert is_integer(payload["action"]["time"])
 
         Plug.Conn.put_resp_header(conn, "content-type", "application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}}))
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+        )
       end)
 
       assert {:ok, %{"status" => "ok"}} =
@@ -43,7 +46,10 @@ defmodule Hyperliquid.Api.Exchange.ScheduleCancelTest do
         refute Map.has_key?(payload["action"], "time")
 
         Plug.Conn.put_resp_header(conn, "content-type", "application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}}))
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+        )
       end)
 
       assert {:ok, %{"status" => "ok"}} =
@@ -61,7 +67,10 @@ defmodule Hyperliquid.Api.Exchange.ScheduleCancelTest do
         assert payload["vaultAddress"] == vault_address
 
         Plug.Conn.put_resp_header(conn, "content-type", "application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}}))
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+        )
       end)
 
       assert {:ok, %{"status" => "ok"}} =

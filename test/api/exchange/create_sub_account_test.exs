@@ -28,7 +28,10 @@ defmodule Hyperliquid.Api.Exchange.CreateSubAccountTest do
         assert payload["action"]["name"] == "Trading Bot"
 
         Plug.Conn.put_resp_header(conn, "content-type", "application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}}))
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+        )
       end)
 
       assert {:ok, %{"status" => "ok"}} =

@@ -82,6 +82,13 @@ defmodule Hyperliquid.Node do
     {:spot_pair_deploy_auction_status, "spotPairDeployAuctionStatus",
      Hyperliquid.Api.Info.SpotPairDeployAuctionStatus, [], []},
     {:validator_l1_votes, "validatorL1Votes", Hyperliquid.Api.Info.ValidatorL1Votes, [], []},
+    {:gossip_priority_auction_status, "gossipPriorityAuctionStatus",
+     Hyperliquid.Api.Info.GossipPriorityAuctionStatus, [], []},
+    {:perp_concise_annotations, "perpConciseAnnotations",
+     Hyperliquid.Api.Info.PerpConciseAnnotations, [], []},
+    # ---- HIP-4 prediction markets ----
+    {:outcome_meta, "outcomeMeta", Hyperliquid.Api.Info.OutcomeMeta, [], []},
+    {:outcome_templates, "outcomeTemplates", Hyperliquid.Api.Info.OutcomeTemplates, [], []},
     # ---- User-param endpoints ----
     {:max_market_order_ntls, "maxMarketOrderNtls", Hyperliquid.Api.Info.MaxMarketOrderNtls,
      [:user], []},
@@ -116,12 +123,18 @@ defmodule Hyperliquid.Node do
      []},
     # ---- Other single-param endpoints ----
     {:margin_table, "marginTable", Hyperliquid.Api.Info.MarginTable, [:id], []},
+    # The node rejects this one: probed against a live node on 2026-08-09 with
+    # both string and integer token values and it never deserialized. Kept so the
+    # generic info_request/2 fallback stays the only surprise, but expect an
+    # error rather than data.
     {:aligned_quote_token_info, "alignedQuoteTokenInfo",
      Hyperliquid.Api.Info.AlignedQuoteTokenInfo, [:token], []},
     {:borrow_lend_reserve_state, "borrowLendReserveState",
      Hyperliquid.Api.Info.BorrowLendReserveState, [:token], []},
     {:perp_annotation, "perpAnnotation", Hyperliquid.Api.Info.PerpAnnotation, [:coin], []},
     {:perp_dex_limits, "perpDexLimits", Hyperliquid.Api.Info.PerpDexLimits, [:dex], []},
+    {:perp_dex_status, "perpDexStatus", Hyperliquid.Api.Info.PerpDexStatus, [:dex], []},
+    {:settled_outcome, "settledOutcome", Hyperliquid.Api.Info.SettledOutcome, [:outcome], []},
     # ---- Raw (no endpoint module) ----
     # webData2 doesn't compute assetCtxs on node, no dedicated module
     {:web_data2, "webData2", nil, [:user], []}

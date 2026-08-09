@@ -756,19 +756,6 @@ fn derive_address(private_key_hex: String) -> NifResult<String> {
     Ok(format!("{}", wallet.address()))
 }
 
-rustler::init!("Elixir.Hyperliquid.Signer", [
-    compute_connection_id,
-    compute_connection_id_ex,
-    derive_address,
-    sign_exchange_action,
-    sign_exchange_action_ex,
-    sign_l1_action,
-    sign_multi_sig_action_ex,
-    sign_typed_data,
-    sign_usd_send,
-    sign_withdraw3,
-    sign_spot_send,
-    sign_approve_builder_fee,
-    sign_approve_agent,
-    to_checksum_address,
-]);
+// rustler 0.38 dropped the explicit NIF list from init!/2 — every function
+// carrying #[rustler::nif] is registered automatically.
+rustler::init!("Elixir.Hyperliquid.Signer");

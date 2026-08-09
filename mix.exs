@@ -66,7 +66,7 @@ defmodule Hyperliquid.MixProject do
 
       # Native extensions
       {:rustler_precompiled, "~> 0.8"},
-      {:rustler, "~> 0.37.1", runtime: false, optional: true},
+      {:rustler, "~> 0.38.0", runtime: false, optional: true},
 
       # Development and testing
       {:ex_doc, "~> 0.31", only: :dev, runtime: false},

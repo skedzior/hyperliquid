@@ -2,7 +2,7 @@ defmodule Hyperliquid.MixProject do
   use Mix.Project
 
   @source_url "https://github.com/skedzior/hyperliquid"
-  @version "0.2.2"
+  @version "0.3.0"
 
   def project do
     [

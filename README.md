@@ -28,7 +28,7 @@ Add `hyperliquid` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:hyperliquid, "~> 0.3.1"}
+    {:hyperliquid, "~> 0.4.0"}
   ]
 end
 ```
@@ -53,7 +53,7 @@ Enable database features by setting `enable_db: true` and adding the required de
 # mix.exs
 defp deps do
   [
-    {:hyperliquid, "~> 0.3.1"},
+    {:hyperliquid, "~> 0.4.0"},
     # Required when enable_db: true
     {:phoenix_ecto, "~> 4.5"},
     {:ecto_sql, "~> 3.10"},
@@ -581,7 +581,7 @@ Use Hyperliquid in Livebook for interactive trading and analysis:
 
 ```elixir
 Mix.install([
-  {:hyperliquid, "~> 0.3.1"}
+  {:hyperliquid, "~> 0.4.0"}
 ],
 config: [
   hyperliquid: [
@@ -598,7 +598,7 @@ alias Hyperliquid.Api.Info.AllMids
 
 ```elixir
 Mix.install([
-  {:hyperliquid, "~> 0.3.1"}
+  {:hyperliquid, "~> 0.4.0"}
 ],
 config: [
   hyperliquid: [

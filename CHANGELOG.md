@@ -1,11 +1,31 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 ### Added
 
+- **HIP-4 outcome assets are now resolvable.** Outcome coins appear in neither
+  `spotMeta`'s universe nor its token list, so `asset_map` held none of them and
+  `Order.limit_order("#102190", ...)` failed with `{:coin_not_found, ...}` —
+  outcome markets could be watched but not traded. `Cache.init/0` now fetches
+  `outcomeMeta` and expands each outcome into its two sides using the documented
+  encoding (`outcome * 10 + side` → coin `#<encoding>`, asset
+  `100_000_000 + encoding`). Validated against testnet: the 309 live outcomes
+  expand to exactly the 618 `#`-prefixed coins `allMids` returns.
+- `Cache.outcome_coin/2`, `outcome_asset/2`, `outcome_and_side/1`,
+  `outcome_coin?/1`, `outcome_asset?/1`, `outcome_asset_base/0`.
+- `config :hyperliquid, outcome_sz_decimals: N` (default 2). No endpoint
+  publishes `szDecimals` for outcomes, so this is configurable rather than
+  silently guessed; confirm it against a real outcome order before relying on it.
+- Six further node info endpoints, verified against a live node:
+  `gossipPriorityAuctionStatus`, `perpConciseAnnotations`, `outcomeMeta`,
+  `outcomeTemplates`, `perpDexStatus`, `settledOutcome`.
+- WebSocket connection rate limiting in `WebSocket.Manager`, covering both the
+  connection count and a new-connections-per-minute window, including on the
+  replace path when a connection dies.
+
 - Added `Hyperliquid.Node` module for interacting with local Hyperliquid node endpoints
-- 42 generated convenience functions for verified local info server endpoints with struct parsing
+- 47 generated convenience functions for node-verified local info endpoints with struct parsing
 - Added 7 new endpoints: `allPerpMetas`, `allBorrowLendReserveStates`, `spotPairDeployAuctionStatus`, `subAccounts2`, `userDexAbstraction`, `alignedQuoteTokenInfo`, `perpDexLimits`
 - Added 6 more node-verified info endpoints: `perpCategories`, `userAbstraction`, `approvedBuilders`, `borrowLendUserState`, `borrowLendReserveState`, `perpAnnotation`
 - Optional `dex:` keyword arg support on `meta`, `clearinghouseState`, `openOrders`, `frontendOpenOrders`, `perpsAtOpenInterestCap`
@@ -22,6 +42,29 @@
 - Added `node_info_request/2` to `Hyperliquid.Transport.Http`
 - Independent `enable_node_info` and `enable_node_rpc` config flags
 - Added `node_url/0`, `node_rpc_enabled?/0`, `node_info_enabled?/0` to `Hyperliquid.Config`
+
+### Fixed
+
+- `query_asset/1` returned `nil` for outcome assets, falling through to the perp
+  lookup; it gains an `:outcome` branch.
+- Two copies of an inline range check classified outcome assets as perps,
+  allowing 6 price decimals instead of the spot-like 8. Replaced with
+  `max_decimals_for_asset/1`.
+- The success check in `Cache.init_with_partial_success/0` counted against a
+  literal `4`, so adding a fifth data source would have reported every full
+  success as partial.
+
+### Notes
+
+Two entries in the documented node support table were wrong, corrected by
+probing a live node against all 78 info request types (it serves 48):
+
+- `perpDexStatus` was listed as unsupported. The node serves it.
+- `alignedQuoteTokenInfo` was listed as supported. The node rejects it.
+
+`borrowLendReserveState` requires an **integer** token. The node returns the same
+deserialization error for an unknown request type and a malformed one, so a wrong
+param type is indistinguishable from an unsupported endpoint.
 
 ## 0.3.1
 

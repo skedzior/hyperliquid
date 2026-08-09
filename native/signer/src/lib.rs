@@ -356,7 +356,20 @@ pub struct BuilderInfo { #[serde(rename = "b")] pub builder: String, #[serde(ren
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct BulkOrder { pub orders: Vec<OrderRequest>, pub grouping: String, #[serde(default, skip_serializing_if = "Option::is_none")] pub builder: Option<BuilderInfo> }
+pub struct BulkOrder { pub orders: Vec<OrderRequest>, pub grouping: Grouping, #[serde(default, skip_serializing_if = "Option::is_none")] pub builder: Option<BuilderInfo> }
+
+/// Order grouping is either one of the named strategies ("na", "normalTpsl",
+/// "positionTpsl") or an order priority fee of the form {"p": rate}, where the
+/// rate is the fraction rate / 1e8.
+///
+/// Untagged so that both forms round-trip to the same msgpack bytes the caller
+/// sent — the grouping is part of the signed preimage.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum Grouping { Named(String), Priority(PriorityGrouping) }
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct PriorityGrouping { pub p: u64 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]

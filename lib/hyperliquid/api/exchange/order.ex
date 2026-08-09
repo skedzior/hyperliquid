@@ -277,7 +277,23 @@ defmodule Hyperliquid.Api.Exchange.Order do
 
   @type order :: limit_order() | trigger_order()
 
-  @type grouping :: :na | :normal_tpsl | :position_tpsl
+  @typedoc """
+  Order grouping strategy.
+
+  `{:priority, rate}` is an order priority fee: the rate is charged as the
+  fraction `rate / 100_000_000` of filled notional for IOC orders, or of resting
+  notional for ALO orders, taken from undelegated staking balance.
+
+  Priority grouping is only valid when every order in the batch is on a
+  non-outcome asset and either all of them are IOC or all of them are
+  non-reduce-only ALO.
+
+  See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/priority-fees
+  """
+  @type grouping :: :na | :normal_tpsl | :position_tpsl | {:priority, non_neg_integer()}
+
+  # Maximum order priority rate, corresponding to 100%.
+  @max_priority_rate 100_000_000
 
   @type builder_info :: %{
           builder: String.t(),
@@ -313,7 +329,13 @@ defmodule Hyperliquid.Api.Exchange.Order do
 
   ## Options
     - `:reduce_only` - Only reduce position (default: false)
-    - `:tif` - Time in force: "Gtc", "Ioc", "Alo" (default: "Gtc")
+    - `:tif` - Time in force (default: `"Gtc"`):
+      - `"Gtc"` - Remains active until filled or cancelled
+      - `"Ioc"` - Fills immediately, cancels any unfilled portion
+      - `"Alo"` - Add liquidity only; rejected if it would cross
+      - `"FrontendMarket"` - Behaves like `"Ioc"`, but tags the order as a
+        market order. Not currently listed in the public API docs; accepted by
+        the exchange and used by the frontend.
     - `:cloid` - Client order ID
 
   ## Examples
@@ -483,6 +505,10 @@ defmodule Hyperliquid.Api.Exchange.Order do
     - `:na` - No grouping (default)
     - `:normal_tpsl` - Group TP/SL with entry order
     - `:position_tpsl` - Attach TP/SL to existing position
+    - `{:priority, rate}` - Order priority fee, charged as `rate / 1e8` of
+      filled notional (IOC) or resting notional (ALO), from undelegated staking
+      balance. Only valid when every order is on a non-outcome asset and either
+      all are IOC or all are non-reduce-only ALO. Max rate is `100_000_000`.
 
   ## Options
     - `:private_key` - Private key for signing (falls back to config)
@@ -601,6 +627,17 @@ defmodule Hyperliquid.Api.Exchange.Order do
   defp format_grouping(:na), do: "na"
   defp format_grouping(:normal_tpsl), do: "normalTpsl"
   defp format_grouping(:position_tpsl), do: "positionTpsl"
+
+  defp format_grouping({:priority, rate})
+       when is_integer(rate) and rate >= 0 and rate <= @max_priority_rate do
+    %{p: rate}
+  end
+
+  defp format_grouping({:priority, rate}) do
+    raise ArgumentError,
+          "order priority rate must be an integer between 0 and #{@max_priority_rate} " <>
+            "(a fraction of 1e8), got: #{inspect(rate)}"
+  end
 
   # ===================== Signing =====================
 

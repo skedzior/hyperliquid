@@ -68,11 +68,6 @@ defmodule Hyperliquid.Api.Exchange.OrderGroupingTest do
   end
 
   describe "place_batch/3 wire format" do
-    # Priority grouping needs the Grouping enum added to the Rust Actions struct.
-    # The published v0.2.2 precompiled NIF still types grouping as a String and
-    # rejects it with "invalid type: map, expected a string", so this only runs
-    # against a NIF built from source (HYPERLIQUID_BUILD_NIF=1).
-    @tag :requires_native_build
     test "sends priority grouping as {\"p\": rate}", %{bypass: bypass} do
       Bypass.expect(bypass, "POST", "/exchange", fn conn ->
         {:ok, body, conn} = Plug.Conn.read_body(conn)

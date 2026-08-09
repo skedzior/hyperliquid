@@ -42,8 +42,6 @@
 - Fixed local NIF builds: `crate: "signer_nif"` resolved to `native/signer_nif`,
   but the crate lives in `native/signer`, so `HYPERLIQUID_BUILD_NIF=1` never
   worked. Thanks @code-supply (#9).
-- Tests requiring a from-source NIF are tagged `:requires_native_build` and
-  excluded unless `HYPERLIQUID_BUILD_NIF=1`.
 
 ### Upgrade notes
 

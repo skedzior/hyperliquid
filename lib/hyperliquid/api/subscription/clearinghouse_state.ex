@@ -7,7 +7,8 @@ defmodule Hyperliquid.Api.Subscription.ClearinghouseState do
 
   use Hyperliquid.Api.SubscriptionEndpoint,
     request_type: "clearinghouseState",
-    params: [:user, :dex],
+    params: [:user],
+    optional_params: [:dex],
     connection_type: :user_grouped,
     doc: "Clearinghouse state - shares connection per user",
     storage: [
@@ -40,7 +41,7 @@ defmodule Hyperliquid.Api.Subscription.ClearinghouseState do
     changeset =
       {%{}, types}
       |> cast(params, Map.keys(types))
-      |> validate_required([:user, :dex])
+      |> validate_required([:user])
       |> validate_format(:user, ~r/^0x[0-9a-fA-F]{40}$/)
 
     if changeset.valid? do
@@ -48,7 +49,9 @@ defmodule Hyperliquid.Api.Subscription.ClearinghouseState do
        %{
          type: "clearinghouseState",
          user: get_change(changeset, :user),
-         dex: get_change(changeset, :dex)
+         # "" is the documented default for the main perps dex. Ecto treats it
+         # as an empty value, so it never lands in changes — fall back to it.
+         dex: get_change(changeset, :dex) || ""
        }}
     else
       {:error, changeset}

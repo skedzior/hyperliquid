@@ -79,7 +79,7 @@ defmodule Hyperliquid.Api.Exchange.BatchModify do
       nonce: nonce
     })
 
-    with {:ok, action_json} <- Jason.encode(action),
+    with {:ok, action_json} <- Hyperliquid.Api.ActionEncoder.encode(action),
          _ <- debug("Action encoded", %{action: action}),
          {:ok, signature} <-
            sign_action(private_key, action_json, nonce, vault_address, expires_after),

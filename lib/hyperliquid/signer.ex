@@ -4,6 +4,9 @@ defmodule Hyperliquid.Signer do
   use RustlerPrecompiled,
     otp_app: :hyperliquid,
     crate: "signer_nif",
+    # The crate is named signer_nif but lives in native/signer, so the default
+    # native/<crate> lookup used by force_build cannot find it.
+    path: "native/signer",
     base_url: "https://github.com/skedzior/hyperliquid/releases/download/v#{version}",
     force_build: System.get_env("HYPERLIQUID_BUILD_NIF") in ["1", "true"],
     version: version,

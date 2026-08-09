@@ -31,7 +31,10 @@ defmodule Hyperliquid.Api.Exchange.UsdSendTest do
         assert payload["action"]["amount"] == amount
 
         Plug.Conn.put_resp_header(conn, "content-type", "application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}}))
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+        )
       end)
 
       assert {:ok, %{"status" => "ok"}} =
@@ -51,7 +54,10 @@ defmodule Hyperliquid.Api.Exchange.UsdSendTest do
           assert payload["action"]["amount"] == amount
 
           Plug.Conn.put_resp_header(conn, "content-type", "application/json")
-          |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}}))
+          |> Plug.Conn.resp(
+            200,
+            Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+          )
         end)
 
         assert {:ok, %{"status" => "ok"}} =

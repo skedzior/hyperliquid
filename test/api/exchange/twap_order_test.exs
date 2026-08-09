@@ -31,10 +31,14 @@ defmodule Hyperliquid.Api.Exchange.TwapOrderTest do
         assert payload["action"]["twap"]["m"] == 5
 
         Plug.Conn.put_resp_header(conn, "content-type", "application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}}))
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+        )
       end)
 
-      assert {:ok, %{"status" => "ok"}} = TwapOrder.request(0, true, "1.0", private_key: @private_key)
+      assert {:ok, %{"status" => "ok"}} =
+               TwapOrder.request(0, true, "1.0", private_key: @private_key)
     end
 
     test "builds correct action with custom duration", %{bypass: bypass} do
@@ -45,7 +49,10 @@ defmodule Hyperliquid.Api.Exchange.TwapOrderTest do
         assert payload["action"]["twap"]["m"] == 30
 
         Plug.Conn.put_resp_header(conn, "content-type", "application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}}))
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+        )
       end)
 
       assert {:ok, %{"status" => "ok"}} =
@@ -61,7 +68,10 @@ defmodule Hyperliquid.Api.Exchange.TwapOrderTest do
         assert payload["action"]["twap"]["b"] == false
 
         Plug.Conn.put_resp_header(conn, "content-type", "application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}}))
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+        )
       end)
 
       assert {:ok, %{"status" => "ok"}} =
@@ -77,7 +87,10 @@ defmodule Hyperliquid.Api.Exchange.TwapOrderTest do
         assert payload["action"]["twap"]["m"] == 15
 
         Plug.Conn.put_resp_header(conn, "content-type", "application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}}))
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+        )
       end)
 
       assert {:ok, %{"status" => "ok"}} =
@@ -98,7 +111,10 @@ defmodule Hyperliquid.Api.Exchange.TwapOrderTest do
         assert payload["vaultAddress"] == vault_address
 
         Plug.Conn.put_resp_header(conn, "content-type", "application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}}))
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+        )
       end)
 
       assert {:ok, %{"status" => "ok"}} =

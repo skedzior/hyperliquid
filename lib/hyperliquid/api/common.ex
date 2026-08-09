@@ -222,6 +222,11 @@ defmodule Hyperliquid.Api.Common do
     |> String.to_atom()
   end
 
+  # Single-character keys have no word boundary to split on. Macro.underscore/1
+  # downcases them ("T" -> "t"), which would collapse distinct sibling keys into
+  # one and silently drop a field. Pass them through unchanged.
+  defp to_snake_case(<<_::utf8>> = key), do: key
+
   defp to_snake_case(key) when is_binary(key) do
     Macro.underscore(key)
   end

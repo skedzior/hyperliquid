@@ -170,8 +170,11 @@ defmodule Hyperliquid.Transport.Http do
       ) do
     url = "#{Config.api_base()}/exchange"
 
+    # The signed preimage is the msgpack of the action, so the body must carry
+    # the same field order that was hashed. canonicalize/1 is idempotent, so it
+    # is safe for callers that already canonicalized before signing.
     payload = %{
-      action: action,
+      action: Hyperliquid.Api.ActionEncoder.canonicalize(action),
       nonce: nonce,
       signature: signature,
       expiresAfter: expires_after
@@ -1084,6 +1087,11 @@ defmodule Hyperliquid.Transport.Http do
   end
 
   defp transform_keys(data), do: data
+
+  # Single-character keys have no word boundary to split on. Downcasing them
+  # would collapse distinct sibling keys into one — e.g. a candle's close time
+  # "T" onto its open time "t" — silently dropping a field. Pass them through.
+  defp to_snake_case(<<_::utf8>> = key), do: key
 
   defp to_snake_case(key) when is_binary(key) do
     key

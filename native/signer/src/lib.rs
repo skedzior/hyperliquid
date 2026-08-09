@@ -356,7 +356,20 @@ pub struct BuilderInfo { #[serde(rename = "b")] pub builder: String, #[serde(ren
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct BulkOrder { pub orders: Vec<OrderRequest>, pub grouping: String, #[serde(default, skip_serializing_if = "Option::is_none")] pub builder: Option<BuilderInfo> }
+pub struct BulkOrder { pub orders: Vec<OrderRequest>, pub grouping: Grouping, #[serde(default, skip_serializing_if = "Option::is_none")] pub builder: Option<BuilderInfo> }
+
+/// Order grouping is either one of the named strategies ("na", "normalTpsl",
+/// "positionTpsl") or an order priority fee of the form {"p": rate}, where the
+/// rate is the fraction rate / 1e8.
+///
+/// Untagged so that both forms round-trip to the same msgpack bytes the caller
+/// sent — the grouping is part of the signed preimage.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum Grouping { Named(String), Priority(PriorityGrouping) }
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct PriorityGrouping { pub p: u64 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -756,19 +769,6 @@ fn derive_address(private_key_hex: String) -> NifResult<String> {
     Ok(format!("{}", wallet.address()))
 }
 
-rustler::init!("Elixir.Hyperliquid.Signer", [
-    compute_connection_id,
-    compute_connection_id_ex,
-    derive_address,
-    sign_exchange_action,
-    sign_exchange_action_ex,
-    sign_l1_action,
-    sign_multi_sig_action_ex,
-    sign_typed_data,
-    sign_usd_send,
-    sign_withdraw3,
-    sign_spot_send,
-    sign_approve_builder_fee,
-    sign_approve_agent,
-    to_checksum_address,
-]);
+// rustler 0.38 dropped the explicit NIF list from init!/2 — every function
+// carrying #[rustler::nif] is registered automatically.
+rustler::init!("Elixir.Hyperliquid.Signer");

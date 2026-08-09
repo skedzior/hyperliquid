@@ -36,7 +36,7 @@ defmodule Hyperliquid.Api.Exchange.ConvertToMultiSigUser do
       threshold: threshold
     }
 
-    with {:ok, action_json} <- Jason.encode(action),
+    with {:ok, action_json} <- Hyperliquid.Api.ActionEncoder.encode(action),
          {:ok, signature} <- sign_action(private_key, action_json, nonce, nil, expires_after) do
       Http.exchange_request(action, signature, nonce, nil, expires_after, opts)
     end

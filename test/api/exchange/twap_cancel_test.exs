@@ -27,7 +27,10 @@ defmodule Hyperliquid.Api.Exchange.TwapCancelTest do
         assert payload["action"]["t"] == 12345
 
         Plug.Conn.put_resp_header(conn, "content-type", "application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}}))
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+        )
       end)
 
       assert {:ok, %{"status" => "ok"}} =
@@ -44,11 +47,17 @@ defmodule Hyperliquid.Api.Exchange.TwapCancelTest do
         assert payload["vaultAddress"] == vault_address
 
         Plug.Conn.put_resp_header(conn, "content-type", "application/json")
-        |> Plug.Conn.resp(200, Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}}))
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+        )
       end)
 
       assert {:ok, %{"status" => "ok"}} =
-               TwapCancel.request(1, 67890, private_key: @private_key, vault_address: vault_address)
+               TwapCancel.request(1, 67890,
+                 private_key: @private_key,
+                 vault_address: vault_address
+               )
     end
 
     test "builds action with correct JSON field order" do

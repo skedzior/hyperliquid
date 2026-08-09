@@ -1,6 +1,7 @@
 defmodule Hyperliquid.SignerL1Test do
   use ExUnit.Case, async: true
 
+  alias Hyperliquid.Api.ActionEncoder
   alias Hyperliquid.Signer
 
   @priv_key "0x822e9959e022b78423eb653a62ea0020cd283e71a2a8133a6ff2aeffaf373cff"
@@ -26,7 +27,7 @@ defmodule Hyperliquid.SignerL1Test do
 
   describe "action hash (connection id)" do
     test "without vaultAddress and expiresAfter (mainnet)" do
-      action_json = Jason.encode!(@action)
+      {:ok, action_json} = ActionEncoder.encode(@action)
 
       assert <<"0x", _::binary>> =
                hash = Signer.compute_connection_id_ex(action_json, @nonce, nil, nil)
@@ -35,21 +36,21 @@ defmodule Hyperliquid.SignerL1Test do
     end
 
     test "with vaultAddress" do
-      action_json = Jason.encode!(@action)
+      {:ok, action_json} = ActionEncoder.encode(@action)
 
       assert Signer.compute_connection_id_ex(action_json, @nonce, @vault, nil) ==
                "0x214e2ea3270981b6fd18174216691e69f56872663139d396b10ded319cb4bb1e"
     end
 
     test "with expiresAfter" do
-      action_json = Jason.encode!(@action)
+      {:ok, action_json} = ActionEncoder.encode(@action)
 
       assert Signer.compute_connection_id_ex(action_json, @nonce, nil, @expires) ==
                "0xc30b002ba3775e4c31c43c1dfd3291dfc85c6ae06c6b9f393991de86cad5fac7"
     end
 
     test "with vaultAddress and expiresAfter" do
-      action_json = Jason.encode!(@action)
+      {:ok, action_json} = ActionEncoder.encode(@action)
 
       assert Signer.compute_connection_id_ex(action_json, @nonce, @vault, @expires) ==
                "0x2d62412aa0fc57441b5189841d81554a6a9680bf07204e1454983a9ca44f0744"
@@ -62,7 +63,7 @@ defmodule Hyperliquid.SignerL1Test do
     end
 
     defp sign(is_mainnet?, vault, expires) do
-      action_json = Jason.encode!(@action)
+      {:ok, action_json} = ActionEncoder.encode(@action)
 
       Signer.sign_exchange_action_ex(@priv_key, action_json, @nonce, is_mainnet?, vault, expires)
       |> Map.take(["r", "s", "v"])

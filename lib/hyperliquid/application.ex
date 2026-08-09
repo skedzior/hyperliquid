@@ -42,7 +42,16 @@ defmodule Hyperliquid.Application do
           []
         end ++
         [
-          {Hyperliquid.Rpc.Registry, [rpcs: Config.named_rpcs()]},
+          {Hyperliquid.Rpc.Registry,
+           [
+             rpcs:
+               Config.named_rpcs()
+               |> then(fn rpcs ->
+                 if Config.node_rpc_enabled?(),
+                   do: Map.put(rpcs, :node, "#{Config.node_url()}/evm"),
+                   else: rpcs
+               end)
+           ]},
           Hyperliquid.WebSocket.Supervisor
         ]
 

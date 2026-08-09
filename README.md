@@ -17,6 +17,7 @@ Hyperliquid provides a comprehensive, type-safe interface to the Hyperliquid DEX
 - **WebSocket connection pooling** - Efficient connection management with automatic reconnection
 - **Cachex-based caching** - Fast in-memory asset metadata and mid price lookups
 - **Optional Postgres persistence** - Config-driven database storage for API data
+- **Local node client** - Low-latency access to local node Info and EVM RPC endpoints
 - **Testnet/mainnet support** - Easy chain switching with automatic database separation
 - **Phoenix PubSub integration** - Real-time event broadcasting
 
@@ -104,6 +105,11 @@ config :hyperliquid,
   enable_db: false,
   enable_web: false,
   autostart_cache: true,
+
+  # Local node (for --serve-info and --serve-eth-rpc)
+  enable_node_info: false,
+  enable_node_rpc: false,
+  node_url: "http://localhost:3001",
 
   # Debug logging
   debug: false,
@@ -600,6 +606,180 @@ config: [
     private_key: "YOUR_TESTNET_KEY"
   ]
 ])
+```
+
+## Local Node
+
+When running a Hyperliquid node with `--serve-info` and/or `--serve-eth-rpc`, the `Hyperliquid.Node` module provides low-latency access without rate limits.
+
+### Running the node
+
+Start `hl-node` with the flags for whichever surfaces you want. Both are served
+on the same port (3001 by default):
+
+```bash
+# Info server only
+./hl-node --serve-info
+
+# Info server + EVM JSON-RPC
+./hl-node --serve-info --serve-eth-rpc
+```
+
+Confirm each is up before pointing the client at it:
+
+```bash
+# Info server
+curl -s -X POST http://localhost:3001/info \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"exchangeStatus"}'
+# => {"specialStatuses":null,"time":1786299106680}
+
+# EVM RPC
+curl -s -X POST http://localhost:3001/evm \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
+# => {"jsonrpc":"2.0","id":1,"result":"0x3e7"}
+```
+
+If the node runs on another host, tunnel the port rather than exposing it —
+the info server binds `0.0.0.0` and is unauthenticated:
+
+```bash
+ssh -N -L 3001:localhost:3001 your-node-host
+```
+
+### Configuration
+
+Info and RPC endpoints can be enabled independently:
+
+```elixir
+config :hyperliquid,
+  node_url: "http://localhost:3001",
+  enable_node_info: true,  # enables Node info convenience functions
+  enable_node_rpc: true    # registers :node named RPC at startup
+```
+
+### Info Endpoints
+
+Convenience functions are generated for all verified local info endpoints, with automatic struct parsing:
+
+```elixir
+alias Hyperliquid.Node
+
+# No-param endpoints
+{:ok, meta} = Node.meta()
+{:ok, status} = Node.exchange_status()
+{:ok, metas} = Node.all_perp_metas()
+{:ok, reserves} = Node.all_borrow_lend_reserve_states()
+{:ok, spot} = Node.spot_meta()
+{:ok, auction} = Node.gossip_priority_auction_status()
+{:ok, ann} = Node.perp_concise_annotations()
+
+# User-param endpoints
+{:ok, state} = Node.clearinghouse_state("0x...")
+{:ok, orders} = Node.open_orders("0x...")
+{:ok, fees} = Node.user_fees("0x...")
+{:ok, accounts} = Node.sub_accounts2("0x...")
+{:ok, abstraction} = Node.user_dex_abstraction("0x...")
+
+# HIP-4 prediction markets
+{:ok, meta} = Node.outcome_meta()
+{:ok, templates} = Node.outcome_templates()
+{:ok, settled} = Node.settled_outcome(1)
+
+# Other single-param endpoints
+{:ok, table} = Node.margin_table(56)
+{:ok, limits} = Node.perp_dex_limits("some_dex")
+{:ok, status} = Node.perp_dex_status("")
+{:ok, reserve} = Node.borrow_lend_reserve_state(0)
+{:ok, ann} = Node.perp_annotation("BTC")
+
+# Endpoints with optional dex: keyword arg
+{:ok, meta} = Node.meta(dex: "some_dex")
+{:ok, state} = Node.clearinghouse_state("0x...", dex: "some_dex")
+{:ok, orders} = Node.open_orders("0x...", dex: "some_dex")
+{:ok, caps} = Node.perps_at_open_interest_cap(dex: "some_dex")
+
+# Generic fallback for any info request (returns raw map)
+{:ok, data} = Node.info_request(%{type: "someEndpoint", user: "0x..."})
+
+# Health check
+{:ok, _} = Node.ping()
+```
+
+<details>
+<summary>Supported local node info endpoints (48 verified)</summary>
+
+**No-param:** `meta`*, `spotMeta`, `allPerpMetas`, `allBorrowLendReserveStates`,
+`exchangeStatus`, `liquidatable`, `vaultSummaries`, `leadingVaults`, `perpDexs`,
+`perpCategories`, `perpDeployAuctionStatus`, `perpsAtOpenInterestCap`*, `spotDeployState`,
+`spotPairDeployAuctionStatus`, `validatorL1Votes`, `maxMarketOrderNtls`,
+`gossipPriorityAuctionStatus`, `perpConciseAnnotations`, `outcomeMeta`, `outcomeTemplates`
+
+**User-param:** `clearinghouseState`*, `spotClearinghouseState`, `openOrders`*,
+`frontendOpenOrders`*, `extraAgents`, `subAccounts`, `subAccounts2`, `userFees`,
+`userRateLimit`, `userVaultEquities`, `userDexAbstraction`, `userToMultiSigSigners`,
+`userRole`, `userAbstraction`, `approvedBuilders`, `borrowLendUserState`,
+`delegations`, `delegatorSummary`, `maxBuilderFee`, `webData2`
+
+**User+coin:** `activeAssetData`
+
+**Other params:** `marginTable` (id), `borrowLendReserveState` (token, **integer**),
+`perpAnnotation` (coin), `perpDexLimits` (dex), `perpDexStatus` (dex),
+`settledOutcome` (outcome)
+
+\* Supports optional `dex:` keyword arg
+
+**Not served by the node.** These fall back to the public API. The node holds
+state, not indexed history or aggregated market data, which is what this split
+reflects:
+
+`allMids`, `metaAndAssetCtxs`, `spotMetaAndAssetCtxs`, `predictedFundings`,
+`l2Book`, `recentTrades`, `candleSnapshot`, `fundingHistory`, `userFills`,
+`userFillsByTime`, `userFunding`, `userBorrowLendInterest`,
+`userNonFundingLedgerUpdates`, `historicalOrders`, `orderStatus`, `vaultDetails`,
+`tokenDetails`, `validatorSummaries`, `gossipRootIps`, `usdcRouting`, `portfolio`,
+`referral`, `isVip`, `legalCheck`, `preTransferCheck`, `twapHistory`,
+`delegatorHistory`, `delegatorRewards`, `userTwapSliceFills`,
+`userTwapSliceFillsByTime`, `alignedQuoteTokenInfo`
+
+`Node.aligned_quote_token_info/1` is still generated, but the node rejects it —
+probed with both string and integer token values.
+
+Verified by probing a live node on 2026-08-09. The node returns the same
+deserialization error for an unknown request type and a malformed one, so a
+type absent here may simply need a different request shape.
+
+</details>
+
+### File Snapshots
+
+The local info server supports `fileSnapshot` requests that write large data to files on the node's filesystem:
+
+```elixir
+# Generic file snapshot
+Node.file_snapshot(%{type: "referrerStates"}, "/tmp/out.json")
+
+# Convenience helpers
+Node.referrer_states_snapshot("/tmp/referrer.json")
+Node.l4_snapshots("/tmp/l4.json", include_users: true, include_trigger_orders: true)
+
+# Include block height in output
+Node.file_snapshot(%{type: "referrerStates"}, "/tmp/out.json", include_height: true)
+```
+
+### EVM RPC
+
+When `enable_node_rpc: true`, a `:node` named RPC is registered at startup. Use it through the existing RPC modules or the Node helpers:
+
+```elixir
+# Via existing RPC modules
+alias Hyperliquid.Rpc.Eth
+Eth.block_number(rpc_name: :node)
+
+# Via Node helpers
+Node.rpc_call("eth_blockNumber")
+Node.rpc_call("eth_getBalance", ["0x...", "latest"])
 ```
 
 ## Explorer API

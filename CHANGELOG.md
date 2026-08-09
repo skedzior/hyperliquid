@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Added `Hyperliquid.Node` module for interacting with local Hyperliquid node endpoints
+- 42 generated convenience functions for verified local info server endpoints with struct parsing
+- Added 7 new endpoints: `allPerpMetas`, `allBorrowLendReserveStates`, `spotPairDeployAuctionStatus`, `subAccounts2`, `userDexAbstraction`, `alignedQuoteTokenInfo`, `perpDexLimits`
+- Added 6 more node-verified info endpoints: `perpCategories`, `userAbstraction`, `approvedBuilders`, `borrowLendUserState`, `borrowLendReserveState`, `perpAnnotation`
+- Optional `dex:` keyword arg support on `meta`, `clearinghouseState`, `openOrders`, `frontendOpenOrders`, `perpsAtOpenInterestCap`
+- Refactored `@supported_endpoints` to 5-tuple format `{name, type, mod, required, optional}` for clean optional param generation
+- Fixed `marginTable` to accept required `id` parameter
+- Added generic single-param macro case for non-user params (`id`, `token`, `dex`)
+- Documented full list of supported and unsupported local node endpoints
+- Added new exchange endpoints: `BorrowLend`, `PerpDeploy`, `SpotDeploy`, `SpotUser`, `UserDexAbstraction`, `UserPortfolioMargin`
+- Added new info endpoint: `UserBorrowLendInterest`
+- Added new WebSocket subscriptions: `AllDexsAssetCtxs`, `AllDexsClearinghouseState`
+- Generic `info_request/2` fallback for undocumented or future node endpoints
+- File snapshot helpers (`file_snapshot/3`, `referrer_states_snapshot/2`, `l4_snapshots/2`)
+- EVM RPC helpers via `:node` named RPC (`rpc_call/2`, `rpc_call!/2`)
+- Added `node_info_request/2` to `Hyperliquid.Transport.Http`
+- Independent `enable_node_info` and `enable_node_rpc` config flags
+- Added `node_url/0`, `node_rpc_enabled?/0`, `node_info_enabled?/0` to `Hyperliquid.Config`
+
 ## 0.3.1
 
 ### Changed

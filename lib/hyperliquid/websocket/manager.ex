@@ -5,27 +5,42 @@ defmodule Hyperliquid.WebSocket.Manager do
   Manages multiple WebSocket connections, routes subscriptions to appropriate
   connections, and provides a registry of active subscriptions.
 
-  ## Connection Types
+  ## Connection Strategy
 
-  Subscriptions are categorized by their connection requirements:
+  All subscriptions share as few connections as possible within Hyperliquid's limits:
 
-  - `:shared` - Can share a connection with other subscriptions (e.g., allMids, trades)
-  - `:dedicated` - Needs its own connection due to response format (e.g., l2Book with params)
-  - `:user_grouped` - Must share connection with other subs for same user (e.g., userFills)
+  - **Shared socket** (`"shared"`) — all `:shared` and `:dedicated` subscriptions
+    land here. The `:dedicated` type is legacy; modules may still declare it but
+    the manager treats it identically to `:shared`.
+
+  - **First user socket** — when the first `:user_grouped` subscription is created,
+    it is placed on the shared socket. No extra connection is opened.
+
+  - **Per-user sockets** (`"user:<address>"`) — each additional unique user gets
+    its own connection so that message routing remains unambiguous (the connection
+    itself is the routing tag; user addresses are not guaranteed in WS responses).
+
+  Because the shared socket carries mixed subscription types, the manager filters
+  incoming messages by channel before dispatching to each subscription's callback.
 
   ## Usage
 
-      # Subscribe to allMids (shared connection)
+      # Subscribe to allMids (shared socket)
       {:ok, sub_id} = Manager.subscribe(Hyperliquid.Api.Subscription.AllMids, %{})
 
-      # Subscribe to l2Book (dedicated connection per variant)
+      # Subscribe to l2Book — also lands on the shared socket
       {:ok, sub_id} = Manager.subscribe(Hyperliquid.Api.Subscription.L2Book, %{
         coin: "BTC", nSigFigs: 5
       })
 
-      # Subscribe to user fills (grouped by user)
+      # First user subscription — shares the existing shared socket
       {:ok, sub_id} = Manager.subscribe(Hyperliquid.Api.Subscription.UserFills, %{
         user: "0x1234..."
+      })
+
+      # Second user — gets its own socket
+      {:ok, sub_id} = Manager.subscribe(Hyperliquid.Api.Subscription.UserFills, %{
+        user: "0xabcd..."
       })
 
       # Unsubscribe
@@ -41,8 +56,8 @@ defmodule Hyperliquid.WebSocket.Manager do
   The Manager maintains:
 
   1. A registry of active subscriptions (ETS table)
-  2. A mapping of subscription keys to connection PIDs
-  3. Connection metadata (shared vs dedicated, user grouping)
+  2. A mapping of connection keys to connection PIDs
+  3. Connection metadata and per-subscription metrics
   """
 
   use GenServer
@@ -208,7 +223,9 @@ defmodule Hyperliquid.WebSocket.Manager do
       # Map of subscription_id => subscription
       subscriptions: %{},
       # Counter for generating unique IDs
-      counter: 0
+      counter: 0,
+      # Millisecond timestamps of recent connection creations (for rate limiting)
+      connection_timestamps: []
     }
 
     {:ok, state}
@@ -241,51 +258,66 @@ defmodule Hyperliquid.WebSocket.Manager do
         end
 
       :not_found ->
-        # No existing subscription, create a new one
-        sub_id = generate_subscription_id(state.counter)
+        # Enforce Hyperliquid rate limits before creating a new subscription
+        with :ok <- check_subscription_limit(state),
+             :ok <- check_user_limit(state, connection_type, params, ws_url) do
+          # No existing subscription, create a new one
+          sub_id = generate_subscription_id(state.counter)
 
-        # Build the subscription request
-        case module.build_request(coerced_params) do
-          {:ok, request} ->
-            # Determine which connection to use
-            {connection_key, connection_pid, state} =
-              get_or_create_connection(connection_type, subscription_key, params, ws_url, state)
+          # Build the subscription request
+          case module.build_request(coerced_params) do
+            {:ok, request} ->
+              # Determine which connection to use (may enforce connection limits)
+              case get_or_create_connection(
+                     connection_type,
+                     subscription_key,
+                     params,
+                     ws_url,
+                     state
+                   ) do
+                {:ok, connection_key, connection_pid, state} ->
+                  # Create subscription record
+                  subscription = %Subscription{
+                    id: sub_id,
+                    module: module,
+                    params: params,
+                    key: connection_key,
+                    connection_type: connection_type,
+                    connection_pid: connection_pid,
+                    callback: callback,
+                    subscribed_at: DateTime.utc_now()
+                  }
 
-            # Create subscription record
-            subscription = %Subscription{
-              id: sub_id,
-              module: module,
-              params: params,
-              key: connection_key,
-              connection_type: connection_type,
-              connection_pid: connection_pid,
-              callback: callback,
-              subscribed_at: DateTime.utc_now()
-            }
+                  # Store in ETS and state
+                  :ets.insert(:ws_subscriptions, {sub_id, subscription})
+                  subscriptions = Map.put(state.subscriptions, sub_id, subscription)
 
-            # Store in ETS and state
-            :ets.insert(:ws_subscriptions, {sub_id, subscription})
-            subscriptions = Map.put(state.subscriptions, sub_id, subscription)
+                  # Send subscription to connection
+                  send_subscription(connection_pid, request, sub_id)
 
-            # Send subscription to connection
-            send_subscription(connection_pid, request, sub_id)
+                  new_state = %{state | subscriptions: subscriptions, counter: state.counter + 1}
 
-            new_state = %{state | subscriptions: subscriptions, counter: state.counter + 1}
+                  :telemetry.execute(
+                    [:hyperliquid, :ws, :subscribe],
+                    %{count: 1},
+                    %{module: module, key: subscription_key}
+                  )
 
-            :telemetry.execute(
-              [:hyperliquid, :ws, :subscribe],
-              %{count: 1},
-              %{module: module, key: subscription_key}
-            )
+                  Logger.info(
+                    "Subscribed #{inspect(module)} with key #{subscription_key}, id: #{sub_id}"
+                  )
 
-            Logger.info(
-              "Subscribed #{inspect(module)} with key #{subscription_key}, id: #{sub_id}"
-            )
+                  {:reply, {:ok, sub_id}, new_state}
 
-            {:reply, {:ok, sub_id}, new_state}
+                {:error, reason} ->
+                  {:reply, {:error, reason}, state}
+              end
 
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
+            {:error, reason} ->
+              {:reply, {:error, reason}, state}
+          end
+        else
+          {:error, reason} -> {:reply, {:error, reason}, state}
         end
     end
   end
@@ -462,24 +494,19 @@ defmodule Hyperliquid.WebSocket.Manager do
   def handle_info({:ws_message, connection_pid, message}, state) do
     now = DateTime.utc_now()
 
-    # Update metrics and route message to appropriate subscription callbacks
+    # Route message to matching subscription callbacks.
+    # The shared socket carries mixed subscription types (shared, dedicated, and the first user),
+    # so we filter by channel to avoid cross-dispatching (e.g. an allMids message should not
+    # trigger an l2Book callback). Per-user connections only carry that user's subscriptions,
+    # so filtering there is a no-op but still correct.
     subscriptions =
       state.subscriptions
       |> Enum.map(fn {id, sub} ->
-        if sub.connection_pid == connection_pid do
-          # Update metrics
+        if sub.connection_pid == connection_pid && message_matches_subscription?(message, sub) do
           updated_sub = update_subscription_metrics(sub, now)
-
-          # Store in ETS
           :ets.insert(:ws_subscriptions, {id, updated_sub})
-
-          # Store to configured backends (async)
-          # Pass subscription params for context (e.g., user address for user_grouped)
           maybe_store_event(sub.module, sub.params, message)
-
-          # Call callback if present
           if sub.callback, do: sub.callback.(message)
-
           {id, updated_sub}
         else
           {id, sub}
@@ -683,7 +710,8 @@ defmodule Hyperliquid.WebSocket.Manager do
     "sub_#{timestamp}_#{counter}"
   end
 
-  defp get_or_create_connection(connection_type, subscription_key, params, ws_url, state) do
+  # Returns {:ok, connection_key, pid, state} | {:error, reason}
+  defp get_or_create_connection(connection_type, _subscription_key, params, ws_url, state) do
     # Include URL in connection key for different WS endpoints
     url_suffix =
       if ws_url != Hyperliquid.Config.ws_url(), do: ":#{URI.parse(ws_url).host}", else: ""
@@ -691,29 +719,182 @@ defmodule Hyperliquid.WebSocket.Manager do
     connection_key =
       case connection_type do
         :shared -> "shared#{url_suffix}"
-        :dedicated -> "#{subscription_key}#{url_suffix}"
-        :user_grouped -> "user:#{params[:user] || params["user"]}#{url_suffix}"
+        # :dedicated is legacy — fold onto the shared socket
+        :dedicated -> "shared#{url_suffix}"
+        :user_grouped -> user_connection_key(params, state, url_suffix)
       end
 
     case Map.get(state.connections, connection_key) do
       nil ->
-        # Create new connection
-        {:ok, pid} = start_connection(connection_key, ws_url)
-        Process.monitor(pid)
-        connections = Map.put(state.connections, connection_key, pid)
-        {connection_key, pid, %{state | connections: connections}}
+        # Would create a new connection — enforce connection count and rate limits
+        with :ok <- check_connection_count_limit(state),
+             :ok <- check_connection_rate_limit(state) do
+          {:ok, pid} = start_connection(connection_key, ws_url)
+          Process.monitor(pid)
+          connections = Map.put(state.connections, connection_key, pid)
+          state = track_connection_timestamp(%{state | connections: connections})
+          {:ok, connection_key, pid, state}
+        end
 
       pid when is_pid(pid) ->
         if Process.alive?(pid) do
-          {connection_key, pid, state}
+          {:ok, connection_key, pid, state}
         else
-          # Connection died, create new one
-          {:ok, new_pid} = start_connection(connection_key, ws_url)
-          Process.monitor(new_pid)
-          connections = Map.put(state.connections, connection_key, new_pid)
-          {connection_key, new_pid, %{state | connections: connections}}
+          # Connection died — check rate limit before replacing (count stays the same)
+          with :ok <- check_connection_rate_limit(state) do
+            {:ok, new_pid} = start_connection(connection_key, ws_url)
+            Process.monitor(new_pid)
+            connections = Map.put(state.connections, connection_key, new_pid)
+            state = track_connection_timestamp(%{state | connections: connections})
+            {:ok, connection_key, new_pid, state}
+          end
         end
     end
+  end
+
+  # Returns the connection key for a user_grouped subscription.
+  # The first unique user shares the existing shared socket (no new connection needed).
+  # Each subsequent unique user gets its own "user:#{address}" connection so that
+  # message routing remains unambiguous (user address is not guaranteed in WS responses).
+  defp user_connection_key(params, state, url_suffix) do
+    address = params[:user] || params["user"]
+    shared_key = "shared#{url_suffix}"
+    user_key = "user:#{address}#{url_suffix}"
+
+    cond do
+      # User already has a dedicated connection
+      Map.has_key?(state.connections, user_key) ->
+        user_key
+
+      # User is already on the shared socket
+      address in users_on_connection(state.subscriptions, shared_key) ->
+        shared_key
+
+      # First user — goes on the shared socket
+      users_on_connection(state.subscriptions, shared_key) == [] ->
+        shared_key
+
+      # Additional user — gets its own connection
+      true ->
+        user_key
+    end
+  end
+
+  # Returns the list of unique user addresses whose user_grouped subscriptions
+  # are routed through the given connection key.
+  defp users_on_connection(subscriptions, connection_key) do
+    subscriptions
+    |> Map.values()
+    |> Enum.filter(fn sub ->
+      sub.connection_type == :user_grouped && sub.key == connection_key
+    end)
+    |> Enum.map(fn sub -> sub.params[:user] || sub.params["user"] end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  # ===================== Rate Limit Helpers =====================
+
+  # Max 1000 simultaneous subscriptions (Hyperliquid limit)
+  defp check_subscription_limit(state) do
+    if map_size(state.subscriptions) >= Hyperliquid.Config.ws_max_subscriptions() do
+      Logger.warning("WebSocket subscription limit reached (#{Hyperliquid.Config.ws_max_subscriptions()})")
+      {:error, :subscription_limit_exceeded}
+    else
+      :ok
+    end
+  end
+
+  # Max 10 unique users across user-specific subscriptions (Hyperliquid limit).
+  # The first user shares the shared socket (no new connection consumed).
+  # Each subsequent unique user needs its own connection, so we also check the
+  # connection budget for those cases.
+  defp check_user_limit(state, :user_grouped, params, ws_url) do
+    new_user = params[:user] || params["user"]
+    existing_users = unique_ws_users(state.subscriptions)
+
+    if new_user not in existing_users do
+      if length(existing_users) >= Hyperliquid.Config.ws_max_users() do
+        Logger.warning(
+          "WebSocket user limit reached (#{Hyperliquid.Config.ws_max_users()} unique users)"
+        )
+
+        {:error, :user_limit_exceeded}
+      else
+        # Check whether this user would require a new connection.
+        # The first user lands on the shared socket; additional users each need one.
+        url_suffix =
+          if ws_url != Hyperliquid.Config.ws_url(), do: ":#{URI.parse(ws_url).host}", else: ""
+
+        shared_key = "shared#{url_suffix}"
+        users_on_shared = users_on_connection(state.subscriptions, shared_key)
+        needs_new_connection = users_on_shared != []
+
+        if needs_new_connection &&
+             map_size(state.connections) >= Hyperliquid.Config.ws_max_connections() do
+          Logger.warning(
+            "WebSocket connection budget exhausted — cannot add new user (#{map_size(state.connections)}/#{Hyperliquid.Config.ws_max_connections()} connections in use)"
+          )
+
+          {:error, :connection_limit_exceeded}
+        else
+          :ok
+        end
+      end
+    else
+      :ok
+    end
+  end
+
+  defp check_user_limit(_state, _connection_type, _params, _ws_url), do: :ok
+
+  # Max 10 simultaneous connections (Hyperliquid limit)
+  defp check_connection_count_limit(state) do
+    if map_size(state.connections) >= Hyperliquid.Config.ws_max_connections() do
+      Logger.warning("WebSocket connection limit reached (#{Hyperliquid.Config.ws_max_connections()})")
+      {:error, :connection_limit_exceeded}
+    else
+      :ok
+    end
+  end
+
+  # Max 30 new connections per minute (Hyperliquid limit)
+  defp check_connection_rate_limit(state) do
+    now = System.system_time(:millisecond)
+    one_minute_ago = now - 60_000
+    recent_count = Enum.count(state.connection_timestamps, &(&1 > one_minute_ago))
+
+    if recent_count >= Hyperliquid.Config.ws_max_connections_per_minute() do
+      Logger.warning(
+        "WebSocket connection rate limit reached (#{Hyperliquid.Config.ws_max_connections_per_minute()} new connections/min)"
+      )
+
+      {:error, :connection_rate_exceeded}
+    else
+      :ok
+    end
+  end
+
+  # Record a new connection timestamp and prune entries older than 1 minute
+  defp track_connection_timestamp(state) do
+    now = System.system_time(:millisecond)
+    one_minute_ago = now - 60_000
+
+    pruned =
+      [now | state.connection_timestamps]
+      |> Enum.filter(&(&1 > one_minute_ago))
+
+    %{state | connection_timestamps: pruned}
+  end
+
+  # Returns the list of unique user addresses currently tracked in user_grouped subscriptions
+  defp unique_ws_users(subscriptions) do
+    subscriptions
+    |> Map.values()
+    |> Enum.filter(&(&1.connection_type == :user_grouped))
+    |> Enum.map(fn sub -> sub.params[:user] || sub.params["user"] end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
   end
 
   defp start_connection(connection_key, ws_url) do
@@ -870,6 +1051,16 @@ defmodule Hyperliquid.WebSocket.Manager do
   defp round_if_float(value) when is_float(value), do: Float.round(value, 2)
   defp round_if_float(value) when is_integer(value), do: value * 1.0
   defp round_if_float(value), do: value
+
+  # Returns true if the WS message should be dispatched to the given subscription.
+  # We match on message["channel"] against the subscription module's request_type.
+  # Messages without a channel key (e.g., pong) are delivered to all subs on the connection.
+  defp message_matches_subscription?(message, sub) do
+    case message["channel"] do
+      nil -> true
+      channel -> channel == get_request_type(sub.module)
+    end
+  end
 
   # ===================== Storage Integration =====================
 

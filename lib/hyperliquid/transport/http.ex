@@ -72,6 +72,32 @@ defmodule Hyperliquid.Transport.Http do
   end
 
   @doc """
+  Make a request to a local node's Info API.
+
+  Sends an info request to `Config.node_url()/info` instead of the public API.
+  The local info server supports a documented subset of info requests plus
+  `fileSnapshot` requests.
+
+  ## Parameters
+    - `payload`: Map with query parameters (must include `"type"` key)
+    - `opts`: Optional HTTPoison options
+
+  ## Returns
+    - `{:ok, response}` - Parsed JSON response (snake_cased)
+    - `{:error, %Error{}}` - Error with details
+
+  ## Examples
+
+      {:ok, meta} = Http.node_info_request(%{type: "meta"})
+      {:ok, state} = Http.node_info_request(%{type: "clearinghouseState", user: "0x..."})
+  """
+  @spec node_info_request(map(), request_opts()) :: response()
+  def node_info_request(payload, opts \\ []) when is_map(payload) do
+    url = "#{Config.node_url()}/info"
+    post(url, payload, opts)
+  end
+
+  @doc """
   Make a request to the Explorer API.
 
   Used for block_details, user_details, and tx_details endpoints.

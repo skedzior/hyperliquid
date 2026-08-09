@@ -98,7 +98,7 @@ defmodule Hyperliquid.Api.Exchange.Cancel do
     nonce = generate_nonce()
     expires_after = Config.expires_after()
 
-    with {:ok, action_json} <- Jason.encode(action),
+    with {:ok, action_json} <- Hyperliquid.Api.ActionEncoder.encode(action),
          {:ok, signature} <-
            sign_action(private_key, action_json, nonce, vault_address, expires_after),
          {:ok, response} <-

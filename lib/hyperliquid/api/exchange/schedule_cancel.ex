@@ -50,7 +50,7 @@ defmodule Hyperliquid.Api.Exchange.ScheduleCancel do
 
     action = Jason.OrderedObject.new(action_fields)
 
-    with {:ok, action_json} <- Jason.encode(action),
+    with {:ok, action_json} <- Hyperliquid.Api.ActionEncoder.encode(action),
          {:ok, signature} <-
            sign_action(private_key, action_json, nonce, vault_address, expires_after) do
       Http.exchange_request(action, signature, nonce, vault_address, expires_after, opts)

@@ -170,8 +170,11 @@ defmodule Hyperliquid.Transport.Http do
       ) do
     url = "#{Config.api_base()}/exchange"
 
+    # The signed preimage is the msgpack of the action, so the body must carry
+    # the same field order that was hashed. canonicalize/1 is idempotent, so it
+    # is safe for callers that already canonicalized before signing.
     payload = %{
-      action: action,
+      action: Hyperliquid.Api.ActionEncoder.canonicalize(action),
       nonce: nonce,
       signature: signature,
       expiresAfter: expires_after

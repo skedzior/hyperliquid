@@ -89,12 +89,14 @@ defmodule Hyperliquid.Cache do
     cache_init_start = System.monotonic_time()
     debug("Cache.init_with_partial_success starting...")
 
-    # Fetch all 4 data sources
+    # Fetch all data sources. outcome_meta is the only source for HIP-4 outcome
+    # assets — they do not appear in spotMeta.
     fetches = [
       {:meta, fn -> Http.meta_and_asset_ctxs() end},
       {:spot_meta, fn -> Http.spot_meta_and_asset_ctxs() end},
       {:mids, fn -> Http.all_mids(raw: true) end},
-      {:perp_dexs, fn -> Http.perp_dexs() end}
+      {:perp_dexs, fn -> Http.perp_dexs() end},
+      {:outcome_meta, fn -> Http.outcome_meta(raw: true) end}
     ]
 
     results =
@@ -124,10 +126,14 @@ defmodule Hyperliquid.Cache do
       store_successful_fetches(success_map)
     end
 
-    # Return appropriate result based on success/failure counts
+    # Return appropriate result based on success/failure counts. Counted against
+    # the number of fetches rather than a literal, so adding a source does not
+    # silently turn a full success into a reported partial one.
+    total_fetches = length(fetches)
+
     result =
       case {length(successes), length(failures)} do
-        {4, 0} ->
+        {^total_fetches, 0} ->
           debug("Cache.init_with_partial_success completed successfully")
           :ok
 
@@ -259,9 +265,26 @@ defmodule Hyperliquid.Cache do
         {%{}, %{}, nil, nil}
       end
 
+    # Process HIP-4 outcome meta if available. Outcome assets are absent from
+    # spotMeta, so without this they cannot be resolved at all.
+    outcome_meta_data = Map.get(success_map, :outcome_meta)
+
+    {outcome_asset_map, outcome_decimal_map} =
+      if outcome_meta_data do
+        {map, decimals} = build_outcome_maps(outcome_meta_data)
+
+        debug("Processing outcome meta", %{outcome_assets: map_size(map)})
+
+        {map, decimals}
+      else
+        {%{}, %{}}
+      end
+
     # Merge maps
-    asset_map = Map.merge(perp_asset_map, spot_asset_map)
-    decimal_map = Map.merge(perp_decimal_map, spot_decimal_map)
+    asset_map = perp_asset_map |> Map.merge(spot_asset_map) |> Map.merge(outcome_asset_map)
+
+    decimal_map =
+      perp_decimal_map |> Map.merge(spot_decimal_map) |> Map.merge(outcome_decimal_map)
 
     debug("Merged maps", %{
       total_assets: map_size(asset_map),
@@ -276,7 +299,7 @@ defmodule Hyperliquid.Cache do
 
     asset_to_price_decimals =
       Enum.reduce(asset_to_sz_decimals, %{}, fn {asset, sz_dec}, acc ->
-        max_decimals = if asset >= 10_000 and asset < 100_000, do: 8, else: 6
+        max_decimals = max_decimals_for_asset(asset)
         allowed = max(max_decimals - (sz_dec || 0), 0)
         Map.put(acc, asset, allowed)
       end)
@@ -426,7 +449,7 @@ defmodule Hyperliquid.Cache do
 
       asset_to_price_decimals =
         Enum.reduce(asset_to_sz_decimals, %{}, fn {asset, sz_dec}, acc ->
-          max_decimals = if asset >= 10_000 and asset < 100_000, do: 8, else: 6
+          max_decimals = max_decimals_for_asset(asset)
           allowed = max(max_decimals - (sz_dec || 0), 0)
           Map.put(acc, asset, allowed)
         end)
@@ -554,6 +577,142 @@ defmodule Hyperliquid.Cache do
           price when is_float(price) -> price
         end
     end
+  end
+
+  # ===================== HIP-4 outcome assets =====================
+
+  # Outcome assets are derived from an outcome id plus a binary side, encoded as
+  # `outcome * 10 + side`. The same encoding appears three ways:
+  #
+  #   spot coin   "#<encoding>"
+  #   token name  "+<encoding>"
+  #   asset ID    100_000_000 + encoding
+  #
+  # See https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/asset-ids
+  @outcome_asset_base 100_000_000
+
+  @doc """
+  The asset ID base for HIP-4 outcome assets.
+  """
+  @spec outcome_asset_base() :: pos_integer()
+  def outcome_asset_base, do: @outcome_asset_base
+
+  @doc """
+  Whether an asset ID refers to a HIP-4 outcome asset.
+
+  ## Example
+
+      Hyperliquid.Cache.outcome_asset?(100_070_020)
+      # => true
+  """
+  @spec outcome_asset?(term()) :: boolean()
+  def outcome_asset?(asset) when is_integer(asset), do: asset >= @outcome_asset_base
+  def outcome_asset?(_), do: false
+
+  @doc """
+  Whether a coin string refers to a HIP-4 outcome asset.
+
+  ## Example
+
+      Hyperliquid.Cache.outcome_coin?("#70020")
+      # => true
+  """
+  @spec outcome_coin?(term()) :: boolean()
+  def outcome_coin?(coin) when is_binary(coin), do: String.starts_with?(coin, "#")
+  def outcome_coin?(_), do: false
+
+  @doc """
+  Build the coin string for an outcome id and side.
+
+  Only sides `0` and `1` are valid.
+
+  ## Example
+
+      Hyperliquid.Cache.outcome_coin(7002, 0)
+      # => "#70020"
+  """
+  @spec outcome_coin(non_neg_integer(), 0 | 1) :: String.t()
+  def outcome_coin(outcome, side) when is_integer(outcome) and side in [0, 1] do
+    "#" <> Integer.to_string(outcome_encoding(outcome, side))
+  end
+
+  @doc """
+  Build the asset ID for an outcome id and side.
+
+  ## Example
+
+      Hyperliquid.Cache.outcome_asset(7002, 0)
+      # => 100070020
+  """
+  @spec outcome_asset(non_neg_integer(), 0 | 1) :: pos_integer()
+  def outcome_asset(outcome, side) when is_integer(outcome) and side in [0, 1] do
+    @outcome_asset_base + outcome_encoding(outcome, side)
+  end
+
+  @doc """
+  Recover `{outcome, side}` from an outcome coin or asset ID.
+
+  ## Returns
+    - `{:ok, {outcome, side}}`
+    - `{:error, :not_an_outcome}`
+
+  ## Example
+
+      Hyperliquid.Cache.outcome_and_side("#70020")
+      # => {:ok, {7002, 0}}
+  """
+  @spec outcome_and_side(String.t() | integer()) ::
+          {:ok, {non_neg_integer(), 0 | 1}} | {:error, :not_an_outcome}
+  def outcome_and_side("#" <> encoding) do
+    case Integer.parse(encoding) do
+      {value, ""} -> {:ok, {div(value, 10), rem(value, 10)}}
+      _ -> {:error, :not_an_outcome}
+    end
+  end
+
+  def outcome_and_side(asset) when is_integer(asset) and asset >= @outcome_asset_base do
+    encoding = asset - @outcome_asset_base
+    {:ok, {div(encoding, 10), rem(encoding, 10)}}
+  end
+
+  def outcome_and_side(_), do: {:error, :not_an_outcome}
+
+  defp outcome_encoding(outcome, side), do: outcome * 10 + side
+
+  # Outcomes trade like spot, so they take the spot price-decimal ceiling rather
+  # than the perp one.
+  defp max_decimals_for_asset(asset) do
+    cond do
+      outcome_asset?(asset) -> 8
+      asset >= 10_000 and asset < 100_000 -> 8
+      true -> 6
+    end
+  end
+
+  # outcomeMeta gives no szDecimals, and outcome tokens are absent from spotMeta,
+  # so there is no authoritative source for it. Configurable rather than guessed
+  # silently, since an over-large value makes the exchange reject the order and an
+  # under-large one truncates the size.
+  defp outcome_sz_decimals do
+    Application.get_env(:hyperliquid, :outcome_sz_decimals, 2)
+  end
+
+  defp build_outcome_maps(outcome_meta) do
+    outcomes = Map.get(outcome_meta, "outcomes") || Map.get(outcome_meta, :outcomes) || []
+    sz_decimals = outcome_sz_decimals()
+
+    Enum.reduce(outcomes, {%{}, %{}}, fn outcome, {assets, decimals} ->
+      id = Map.get(outcome, "outcome") || Map.get(outcome, :outcome)
+
+      if is_integer(id) do
+        Enum.reduce(0..1, {assets, decimals}, fn side, {a, d} ->
+          coin = outcome_coin(id, side)
+          {Map.put(a, coin, outcome_asset(id, side)), Map.put(d, coin, sz_decimals)}
+        end)
+      else
+        {assets, decimals}
+      end
+    end)
   end
 
   @doc """
@@ -916,6 +1075,23 @@ defmodule Hyperliquid.Cache do
 
   def query_asset(asset) when is_integer(asset) do
     cond do
+      outcome_asset?(asset) ->
+        case outcome_and_side(asset) do
+          {:ok, {outcome, side}} ->
+            %{
+              type: :outcome,
+              asset: asset,
+              coin: outcome_coin(outcome, side),
+              outcome: outcome,
+              side: side,
+              sz_decimals: sz_decimals_by_asset(asset),
+              price_decimals: price_decimals_by_asset(asset)
+            }
+
+          _ ->
+            nil
+        end
+
       asset >= 10_000 and asset < 100_000 ->
         case get_spot_by_asset(asset) do
           nil ->

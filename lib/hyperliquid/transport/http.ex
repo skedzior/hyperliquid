@@ -530,6 +530,17 @@ defmodule Hyperliquid.Transport.Http do
   end
 
   @doc """
+  Fetch HIP-4 prediction market outcome metadata.
+
+  Outcome assets are not present in `spotMeta`, so this is the only source for
+  resolving `#<encoding>` coins to asset IDs.
+  """
+  @spec outcome_meta(request_opts()) :: response()
+  def outcome_meta(opts \\ []) do
+    info_request(%{type: "outcomeMeta"}, opts)
+  end
+
+  @doc """
   Fetch limits for a specific perpetual DEX.
 
   ## Parameters

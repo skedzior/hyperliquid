@@ -239,6 +239,11 @@ defmodule Hyperliquid.Transport.Http do
   def user_signed_request(action, signature, nonce, opts \\ []) do
     url = "#{Config.api_base()}/exchange"
 
+    # Canonicalize exactly like an L1 action: pins the declared key order and
+    # lower-cases `0x…` hex values, so the wire body cannot disagree with the
+    # payload `Hyperliquid.Api.Exchange.UserSigned` actually signed.
+    action = Hyperliquid.Api.Exchange.Action.ordered(action)
+
     payload = %{
       action: action,
       nonce: nonce,

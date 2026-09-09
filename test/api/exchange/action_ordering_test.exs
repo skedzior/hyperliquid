@@ -240,6 +240,60 @@ defmodule Hyperliquid.Api.Exchange.ActionOrderingTest do
              |> Jason.encode!() == ~s({"type":"cancel","cancels":[{"a":0,"o":1}]})
     end
 
+    test "hex values are lower-cased so the exchange re-hashes identical bytes" do
+      # Hyperliquid lower-cases every `0x…` string when it deserializes the
+      # action into its own structs, and the signature is checked against that
+      # re-serialization. A checksummed address on the wire therefore recovers
+      # a garbage signer ("User or API Wallet 0x… does not exist"). Verified
+      # live on testnet 2026-09-09 with `reserveRequestWeight`.
+      assert %{
+               type: "reserveRequestWeight",
+               weight: 1,
+               destination: "0x7A588B92433FF4B9991B8B56a8fD0Db9649E66F2"
+             }
+             |> Action.ordered()
+             |> Jason.encode!() ==
+               ~s({"type":"reserveRequestWeight","weight":1,"destination":"0x7a588b92433ff4b9991b8b56a8fd0db9649e66f2"})
+    end
+
+    test "hex values nested in arrays and undeclared keys are lower-cased too" do
+      encoded =
+        %{
+          "type" => "outcomeDeploy",
+          "venue" => "abcd",
+          "operation" => %{
+            "setSubDeployers" => [
+              %{
+                "variant" => "settleOutcome",
+                "user" => "0xAbCdEf0123456789AbCdEf0123456789AbCdEf01",
+                "allowed" => false
+              }
+            ]
+          }
+        }
+        |> Action.ordered()
+        |> Jason.encode!()
+
+      assert encoded =~ ~s("user":"0xabcdef0123456789abcdef0123456789abcdef01")
+      refute encoded =~ "AbCdEf"
+    end
+
+    test "a cloid keeps its position and is lower-cased" do
+      assert %{
+               type: "cancelByCloid",
+               cancels: [%{asset: 0, cloid: "0xABCD1234ABCD1234ABCD1234ABCD1234"}]
+             }
+             |> Action.ordered()
+             |> Jason.encode!() ==
+               ~s({"type":"cancelByCloid","cancels":[{"asset":0,"cloid":"0xabcd1234abcd1234abcd1234abcd1234"}]})
+    end
+
+    test "non-hex strings keep their case" do
+      assert %{type: "setDisplayName", displayName: "MixedCase Name"}
+             |> Action.ordered()
+             |> Jason.encode!() == ~s({"type":"setDisplayName","displayName":"MixedCase Name"})
+    end
+
     test "an unknown action type is still emitted deterministically" do
       assert %{"type" => "notAnAction", "b" => 1}
              |> Action.ordered()

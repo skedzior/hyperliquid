@@ -103,10 +103,23 @@ defmodule Hyperliquid.Api.Exchange.UserSigned do
 
     message =
       message
-      |> Enum.map(fn {k, v} -> {to_string(k), v} end)
+      |> Enum.map(fn {k, v} -> {to_string(k), normalize_hex(v)} end)
       |> Map.new()
       |> Map.put("hyperliquidChain", hyperliquid_chain(is_mainnet))
 
     sign(private_key, primary_type, types, message)
   end
+
+  # Hyperliquid lower-cases every `0x…` hex string before it re-derives the
+  # signed payload, and fields such as `destination` are typed `string` in the
+  # EIP-712 struct, so their case is part of the hash. Mirrors the same
+  # normalisation applied to L1 actions in `Hyperliquid.Api.Exchange.Action`
+  # and `@nktkas/hyperliquid`'s `Hex` schema.
+  @hex_string ~r/^0x[0-9a-fA-F]+$/
+
+  defp normalize_hex(value) when is_binary(value) do
+    if Regex.match?(@hex_string, value), do: String.downcase(value), else: value
+  end
+
+  defp normalize_hex(value), do: value
 end

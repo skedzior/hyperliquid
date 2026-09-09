@@ -476,6 +476,7 @@ defmodule Hyperliquid.Api.Exchange.Action do
     do: walk(spec, Tuple.to_list(tuple))
 
   defp walk({:array, spec}, list) when is_list(list), do: Enum.map(list, &walk(spec, &1))
+  defp walk({:array, _spec}, value), do: walk(nil, value)
 
   defp walk({:object, fields}, value) do
     if container?(value) do
@@ -491,18 +492,21 @@ defmodule Hyperliquid.Api.Exchange.Action do
           end
         end)
 
-      # Keys the schema does not declare (forward-compatibility seams) sort
-      # lexicographically rather than keeping the caller's order: a plain Elixir
-      # map has no insertion order, and its key order follows the atom table,
-      # which is populated differently on every BEAM run.
+      # Keys the schema does not declare (forward-compatibility seams) are still
+      # walked, so nested maps inside a seam get a stable key order and hex
+      # normalisation just like declared ones. They keep the caller's order when
+      # the caller supplied one; a plain Elixir map has no insertion order (its
+      # key order follows the atom table, which is populated differently on
+      # every BEAM run), so those are sorted to make the bytes reproducible.
       extras =
         pairs
         |> Enum.reject(fn {k, _v} -> to_string(k) in declared end)
-        |> Enum.sort_by(fn {k, _v} -> to_string(k) end)
+        |> stable_order(value)
+        |> Enum.map(fn {k, v} -> {k, walk(nil, v)} end)
 
       Jason.OrderedObject.new(ordered_pairs ++ extras)
     else
-      value
+      normalize(value)
     end
   end
 
@@ -511,15 +515,24 @@ defmodule Hyperliquid.Api.Exchange.Action do
 
   # Unknown-shape containers keep whatever order the caller gave them, but are
   # still converted to an ordered object so the encoded bytes are stable.
-  defp to_ordered_object(%Jason.OrderedObject{} = obj), do: obj
-
   defp to_ordered_object(value) do
     if container?(value) do
-      Jason.OrderedObject.new(Enum.sort_by(pairs(value), &sort_key/1))
-    else
       value
+      |> pairs()
+      |> stable_order(value)
+      |> Enum.map(fn {k, v} -> {k, walk(nil, v)} end)
+      |> Jason.OrderedObject.new()
+    else
+      normalize(value)
     end
   end
+
+  # A `Jason.OrderedObject` carries an order the caller chose deliberately — the
+  # deploy and validator actions are tagged unions assembled by hand — so it is
+  # preserved. A plain map has no order to preserve, so its keys are sorted
+  # instead of being left to the atom table's per-boot layout.
+  defp stable_order(pairs, %Jason.OrderedObject{}), do: pairs
+  defp stable_order(pairs, _source), do: Enum.sort_by(pairs, &sort_key/1)
 
   # `type` is the action discriminator and always leads; everything else in an
   # undeclared shape sorts lexicographically so the bytes are stable across runs.
@@ -529,6 +542,25 @@ defmodule Hyperliquid.Api.Exchange.Action do
       other -> {1, other}
     end
   end
+
+  # Hyperliquid lower-cases every `0x…` hex string (addresses, cloids) when it
+  # deserializes an action into its own Rust structs, and it is *that*
+  # re-serialization the signature is checked against. A checksummed address on
+  # the wire therefore hashes to different bytes than the client signed, and
+  # the exchange recovers a garbage signer — "User or API Wallet 0x… does not
+  # exist" naming an address nobody has ever used.
+  #
+  # Verified live on testnet 2026-09-09: the same `reserveRequestWeight`
+  # action recovers the real signer with a lower-case `destination` and a
+  # different address with a checksummed one. `@nktkas/hyperliquid` applies the
+  # same normalisation in its `Hex` schema (`src/api/_schemas.ts`).
+  @hex_string ~r/^0x[0-9a-fA-F]+$/
+
+  defp normalize(value) when is_binary(value) do
+    if Regex.match?(@hex_string, value), do: String.downcase(value), else: value
+  end
+
+  defp normalize(value), do: value
 
   defp container?(%Jason.OrderedObject{}), do: true
   defp container?(%_{}), do: false

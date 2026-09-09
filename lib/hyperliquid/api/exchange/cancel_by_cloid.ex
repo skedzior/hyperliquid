@@ -86,7 +86,7 @@ defmodule Hyperliquid.Api.Exchange.CancelByCloid do
     private_key = Hyperliquid.Api.Exchange.KeyUtils.resolve_private_key!(opts)
     vault_address = Keyword.get(opts, :vault_address)
 
-    action = build_action(cancels)
+    action = build_action(cancels, Keyword.get(opts, :fast, false))
     nonce = generate_nonce()
     expires_after = Config.expires_after()
 
@@ -101,8 +101,13 @@ defmodule Hyperliquid.Api.Exchange.CancelByCloid do
 
   # ===================== Action Building =====================
 
-  defp build_action(cancels) do
-    %{
+  @doc false
+  # Exposed for tests: builds the action without signing or performing IO.
+  # `fast?` emits the optional `f: true` flag, which prioritises the cancel in
+  # the mempool. The flag is omitted entirely when false - an extra key would
+  # change the L1 action hash.
+  def build_action(cancels, fast? \\ false) do
+    action = %{
       type: "cancelByCloid",
       cancels:
         Enum.map(cancels, fn c ->
@@ -112,6 +117,8 @@ defmodule Hyperliquid.Api.Exchange.CancelByCloid do
           }
         end)
     }
+
+    if fast?, do: Map.put(action, :f, true), else: action
   end
 
   # ===================== Signing =====================

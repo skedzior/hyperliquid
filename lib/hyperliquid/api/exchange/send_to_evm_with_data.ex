@@ -2,12 +2,48 @@ defmodule Hyperliquid.Api.Exchange.SendToEvmWithData do
   @moduledoc """
   Send tokens from core to EVM with a custom data payload.
 
-  See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
+  `sendToEvmWithData` is a **user-signed** (EIP-712) action, signed under
+  `HyperliquidTransaction:SendToEvmWithData`. The signed struct is
+
+      hyperliquidChain      string
+      token                 string
+      amount                string
+      sourceDex             string
+      destinationRecipient  string
+      addressEncoding       string
+      destinationChainId    uint32
+      gasLimit              uint64
+      data                  bytes
+      nonce                 uint64
+
+  matching `@nktkas/hyperliquid` (`SendToEvmWithDataTypes`). Before v0.2.4 this
+  module declared `destinationChainId` as `uint64` and `data` as `string`. Both
+  the Solidity types and the resulting encoding differ (`bytes` is hashed, a
+  `string` of hex text is not), so those signatures could never have been
+  recovered to the sending address.
+
+  `data` is hex-encoded calldata (`"0x"` for an empty payload).
+
+  See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#send-to-evm-with-data
   """
 
+  alias Hyperliquid.Api.Exchange.{KeyUtils, UserSigned}
   alias Hyperliquid.Config
-  alias Hyperliquid.Api.Exchange.KeyUtils
   alias Hyperliquid.Transport.Http
+  alias Hyperliquid.Utils
+
+  @primary_type "HyperliquidTransaction:SendToEvmWithData"
+  @fields [
+    {"token", "string"},
+    {"amount", "string"},
+    {"sourceDex", "string"},
+    {"destinationRecipient", "string"},
+    {"addressEncoding", "string"},
+    {"destinationChainId", "uint32"},
+    {"gasLimit", "uint64"},
+    {"data", "bytes"},
+    {"nonce", "uint64"}
+  ]
 
   @doc """
   Send tokens from core to EVM with a custom data payload.
@@ -17,9 +53,9 @@ defmodule Hyperliquid.Api.Exchange.SendToEvmWithData do
     - `amount`: Amount to send (string)
     - `source_dex`: Source DEX
     - `destination_recipient`: Destination EVM address
-    - `destination_chain_id`: Destination chain ID (integer)
+    - `destination_chain_id`: Destination chain ID (integer, `uint32`)
     - `gas_limit`: Gas limit (integer)
-    - `data`: Hex-encoded calldata
+    - `data`: Hex-encoded calldata (`"0x"` for none)
     - `opts`: Optional parameters
 
   ## Options
@@ -44,77 +80,104 @@ defmodule Hyperliquid.Api.Exchange.SendToEvmWithData do
         opts \\ []
       ) do
     private_key = KeyUtils.resolve_and_validate!(opts)
-    nonce = generate_nonce()
+    nonce = Utils.generate_nonce()
     is_mainnet = Config.mainnet?()
     address_encoding = Keyword.get(opts, :address_encoding, "hex")
 
-    domain = %{
-      name: "HyperliquidSignTransaction",
-      version: "1",
-      chainId: Hyperliquid.Config.signature_chain_id(),
-      verifyingContract: "0x0000000000000000000000000000000000000000"
-    }
-
-    types = %{
-      "HyperliquidTransaction:SendToEvmWithData" => [
-        %{name: "hyperliquidChain", type: "string"},
-        %{name: "token", type: "string"},
-        %{name: "amount", type: "string"},
-        %{name: "sourceDex", type: "string"},
-        %{name: "destinationRecipient", type: "string"},
-        %{name: "addressEncoding", type: "string"},
-        %{name: "destinationChainId", type: "uint64"},
-        %{name: "gasLimit", type: "uint64"},
-        %{name: "data", type: "string"},
-        %{name: "nonce", type: "uint64"}
-      ]
-    }
-
-    message = %{
-      hyperliquidChain: if(is_mainnet, do: "Mainnet", else: "Testnet"),
-      token: token,
-      amount: amount,
-      sourceDex: source_dex,
-      destinationRecipient: destination_recipient,
-      addressEncoding: address_encoding,
-      destinationChainId: destination_chain_id,
-      gasLimit: gas_limit,
-      data: data,
-      nonce: nonce
-    }
-
-    with {:ok, domain_json} <- Jason.encode(domain),
-         {:ok, types_json} <- Jason.encode(types),
-         {:ok, message_json} <- Jason.encode(message),
-         {:ok, signature} <-
-           KeyUtils.sign_typed_data(
+    with {:ok, signature} <-
+           sign(
              private_key,
-             domain_json,
-             types_json,
-             message_json,
-             "HyperliquidTransaction:SendToEvmWithData"
+             token,
+             amount,
+             source_dex,
+             destination_recipient,
+             address_encoding,
+             destination_chain_id,
+             gas_limit,
+             data,
+             nonce,
+             is_mainnet
            ) do
       action =
-        Jason.OrderedObject.new([
-          {:type, "sendToEvmWithData"},
-          {:signatureChainId, Hyperliquid.Config.signature_chain_id_hex()},
-          {:hyperliquidChain, if(is_mainnet, do: "Mainnet", else: "Testnet")},
-          {:token, token},
-          {:amount, amount},
-          {:sourceDex, source_dex},
-          {:destinationRecipient, destination_recipient},
-          {:addressEncoding, address_encoding},
-          {:destinationChainId, destination_chain_id},
-          {:gasLimit, gas_limit},
-          {:data, data},
-          {:nonce, nonce}
-        ])
+        build_action(
+          token,
+          amount,
+          source_dex,
+          destination_recipient,
+          address_encoding,
+          destination_chain_id,
+          gas_limit,
+          data,
+          nonce,
+          is_mainnet
+        )
 
       Http.user_signed_request(action, signature, nonce, opts)
     end
   end
 
-  defp generate_nonce do
-    System.system_time(:millisecond)
+  @doc """
+  The wire action, in the canonical field order
+  (`type`, `signatureChainId`, `hyperliquidChain`, then the signed fields).
+  """
+  def build_action(
+        token,
+        amount,
+        source_dex,
+        destination_recipient,
+        address_encoding,
+        destination_chain_id,
+        gas_limit,
+        data,
+        nonce,
+        is_mainnet \\ nil
+      ) do
+    Jason.OrderedObject.new([
+      {:type, "sendToEvmWithData"},
+      {:signatureChainId, UserSigned.signature_chain_id()},
+      {:hyperliquidChain, UserSigned.hyperliquid_chain(is_mainnet)},
+      {:token, token},
+      {:amount, amount},
+      {:sourceDex, source_dex},
+      {:destinationRecipient, destination_recipient},
+      {:addressEncoding, address_encoding},
+      {:destinationChainId, destination_chain_id},
+      {:gasLimit, gas_limit},
+      {:data, data},
+      {:nonce, nonce}
+    ])
+  end
+
+  @doc false
+  def sign(
+        private_key,
+        token,
+        amount,
+        source_dex,
+        destination_recipient,
+        address_encoding,
+        destination_chain_id,
+        gas_limit,
+        data,
+        nonce,
+        is_mainnet \\ nil
+      ) do
+    UserSigned.sign(
+      private_key,
+      @primary_type,
+      @fields,
+      [
+        {"token", token},
+        {"amount", amount},
+        {"sourceDex", source_dex},
+        {"destinationRecipient", destination_recipient},
+        {"addressEncoding", address_encoding},
+        {"destinationChainId", destination_chain_id},
+        {"gasLimit", gas_limit},
+        {"data", data},
+        {"nonce", nonce}
+      ],
+      is_mainnet
+    )
   end
 end

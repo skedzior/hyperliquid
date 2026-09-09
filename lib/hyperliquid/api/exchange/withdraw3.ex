@@ -5,17 +5,9 @@ defmodule Hyperliquid.Api.Exchange.Withdraw3 do
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
-  alias Hyperliquid.Config
   alias Hyperliquid.Api.Exchange.{KeyUtils, UserSigned}
+  alias Hyperliquid.Config
   alias Hyperliquid.Transport.Http
-
-  @primary_type "HyperliquidTransaction:Withdraw"
-  @types [
-    %{name: "hyperliquidChain", type: "string"},
-    %{name: "destination", type: "string"},
-    %{name: "amount", type: "string"},
-    %{name: "time", type: "uint64"}
-  ]
 
   @doc """
   Initiate a withdrawal request.
@@ -47,30 +39,29 @@ defmodule Hyperliquid.Api.Exchange.Withdraw3 do
     time = generate_nonce()
     is_mainnet = Config.mainnet?()
 
-    hyperliquid_chain = if(is_mainnet, do: "Mainnet", else: "Testnet")
+    action =
+      Jason.OrderedObject.new([
+        {:type, "withdraw3"},
+        {:signatureChainId, UserSigned.signature_chain_id()},
+        {:hyperliquidChain, UserSigned.hyperliquid_chain(is_mainnet)},
+        {:destination, destination},
+        {:amount, amount},
+        {:time, time}
+      ])
 
-    message = %{
-      hyperliquidChain: hyperliquid_chain,
-      destination: destination,
-      amount: amount,
-      time: time
-    }
-
-    with {:ok, signature} <- UserSigned.sign(private_key, @primary_type, @types, message) do
-      action = %{
-        type: "withdraw3",
-        hyperliquidChain: hyperliquid_chain,
-        signatureChainId: UserSigned.signature_chain_id(),
-        destination: destination,
-        amount: amount,
-        time: time
-      }
-
+    with {:ok, signature} <-
+           UserSigned.sign(
+             private_key,
+             "HyperliquidTransaction:Withdraw",
+             [{"destination", "string"}, {"amount", "string"}, {"time", "uint64"}],
+             [{"destination", destination}, {"amount", amount}, {"time", time}],
+             is_mainnet
+           ) do
       Http.user_signed_request(action, signature, time, opts)
     end
   end
 
   defp generate_nonce do
-    System.system_time(:millisecond)
+    Hyperliquid.Utils.generate_nonce()
   end
 end

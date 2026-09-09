@@ -296,6 +296,13 @@ defmodule Hyperliquid.Transport.WebSocket do
     case connect(state) do
       {:ok, new_state} ->
         Logger.info("Reconnected successfully")
+        # Reset the backoff only after a completed upgrade, not on TCP success.
+        new_state = %{
+          new_state
+          | reconnect_attempts: 0,
+            reconnect_delay: @initial_reconnect_delay
+        }
+
         # Resubscribe to all channels
         final_state = resubscribe_all(new_state)
         {:noreply, schedule_ping(final_state)}
@@ -488,10 +495,12 @@ defmodule Hyperliquid.Transport.WebSocket do
     :ok
   end
 
-  defp handle_message(state, %{"channel" => channel, "data" => data}) do
-    # Broadcast to matching subscriptions
+  defp handle_message(state, %{"channel" => channel, "data" => data} = message) do
+    # Broadcast only to subscriptions whose full identity matches this frame
+    # (channel + coin/user/interval/dex) — never on channel alone, or a BTC
+    # l2Book subscriber would receive ETH books.
     Enum.each(state.subscriptions, fn {_id, sub} ->
-      if matches_subscription?(sub.channel, channel, data) do
+      if matches_subscription?(sub.channel, channel, message) do
         try do
           sub.callback.(data)
         rescue
@@ -506,17 +515,8 @@ defmodule Hyperliquid.Transport.WebSocket do
     Logger.debug("Unhandled message: #{inspect(data)}")
   end
 
-  defp matches_subscription?(sub_channel, _channel, data) do
-    # Match based on subscription type and user (if applicable)
-    case {sub_channel["type"], data} do
-      {type, %{"user" => user}} when is_binary(user) ->
-        sub_channel["type"] == type and
-          (is_nil(sub_channel["user"]) or
-             String.downcase(sub_channel["user"]) == String.downcase(user))
-
-      {type, _} ->
-        sub_channel["type"] == type
-    end
+  defp matches_subscription?(sub_channel, _channel, message) do
+    Hyperliquid.WebSocket.SubscriptionKey.matches_request?(sub_channel, message)
   end
 
   defp send_message(%{connected: false} = state, message) do
@@ -582,12 +582,16 @@ defmodule Hyperliquid.Transport.WebSocket do
 
   defp schedule_reconnect(state) do
     new_attempts = state.reconnect_attempts + 1
-    delay = min(state.reconnect_delay * 2, @max_reconnect_delay)
+    ceiling = min(state.reconnect_delay * 2, @max_reconnect_delay)
+    # Jitter over the lower half of the bucket so that sockets which dropped
+    # together do not all redial at the same instant and storm the per-IP
+    # new-connection budget.
+    delay = div(ceiling, 2) + :rand.uniform(div(ceiling, 2) + 1) - 1
 
     Logger.info("Scheduling reconnect attempt #{new_attempts} in #{delay}ms")
     Process.send_after(self(), :reconnect, delay)
 
-    %{state | reconnect_attempts: new_attempts, reconnect_delay: delay, connected: false}
+    %{state | reconnect_attempts: new_attempts, reconnect_delay: ceiling, connected: false}
   end
 
   defp do_reconnect(state) do

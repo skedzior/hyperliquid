@@ -8,13 +8,22 @@ defmodule Hyperliquid.Signer do
     # native/<crate> lookup used by force_build cannot find it.
     path: "native/signer",
     base_url: "https://github.com/skedzior/hyperliquid/releases/download/v#{version}",
-    force_build: System.get_env("HYPERLIQUID_BUILD_NIF") in ["1", "true"],
+    # Build `native/signer` from source when either the env var is set or
+    # `config :rustler_precompiled, :force_build, hyperliquid: true` is present
+    # (config/dev.exs and config/test.exs both set it, so local Rust edits take
+    # effect without a release). Consumers of the Hex package keep using the
+    # precompiled artifacts and need no Rust toolchain.
+    force_build:
+      System.get_env("HYPERLIQUID_BUILD_NIF") in ["1", "true"] or
+        Application.compile_env(:rustler_precompiled, [:force_build, :hyperliquid], false),
     version: version,
     targets: ~w(
       aarch64-apple-darwin
       aarch64-unknown-linux-gnu
       x86_64-apple-darwin
       x86_64-unknown-linux-gnu
+      aarch64-unknown-linux-musl
+      x86_64-unknown-linux-musl
       x86_64-pc-windows-gnu
       x86_64-pc-windows-msvc
     ),
@@ -32,8 +41,15 @@ defmodule Hyperliquid.Signer do
   def sign_exchange_action(_pk, _action_json, _nonce, _is_mainnet, _vault_addr),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def sign_exchange_action_ex(_pk, _action_json, _nonce, _is_mainnet, _vault_addr, _expires_after),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def sign_exchange_action_ex(
+        _pk,
+        _action_json,
+        _nonce,
+        _is_mainnet,
+        _vault_addr,
+        _expires_after
+      ),
+      do: :erlang.nif_error(:nif_not_loaded)
 
   def sign_l1_action(_pk, _connection_id, _is_mainnet),
     do: :erlang.nif_error(:nif_not_loaded)
@@ -53,8 +69,15 @@ defmodule Hyperliquid.Signer do
   def sign_approve_agent(_pk, _agent_addr, _agent_name, _nonce, _is_mainnet),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  def sign_multi_sig_action_ex(_pk, _action_json, _nonce, _is_mainnet, _vault_addr, _expires_after),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def sign_multi_sig_action_ex(
+        _pk,
+        _action_json,
+        _nonce,
+        _is_mainnet,
+        _vault_addr,
+        _expires_after
+      ),
+      do: :erlang.nif_error(:nif_not_loaded)
 
   def sign_typed_data(_pk, _domain_json, _types_json, _message_json, _primary_type),
     do: :erlang.nif_error(:nif_not_loaded)

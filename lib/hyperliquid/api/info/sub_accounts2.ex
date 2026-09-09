@@ -34,6 +34,13 @@ defmodule Hyperliquid.Api.Info.SubAccounts2 do
       field(:master, :string)
       field(:clearinghouse_state, :map)
       field(:spot_state, :map)
+
+      # Account abstraction mode; absent from the payload when the sub-account
+      # is on the default mode.
+      # One of "unifiedAccount" | "portfolioMargin" | "disabled".
+      # (The former "dexAbstraction" value was removed upstream in v0.33.3 -
+      # DEX abstraction is now its own boolean flag.)
+      field(:abstraction, :string)
     end
   end
 
@@ -60,7 +67,14 @@ defmodule Hyperliquid.Api.Info.SubAccounts2 do
 
   defp account_changeset(account, attrs) do
     account
-    |> cast(attrs, [:sub_account_user, :name, :master, :clearinghouse_state, :spot_state])
+    |> cast(attrs, [
+      :sub_account_user,
+      :name,
+      :master,
+      :clearinghouse_state,
+      :spot_state,
+      :abstraction
+    ])
     |> validate_required([:sub_account_user, :name, :master])
   end
 

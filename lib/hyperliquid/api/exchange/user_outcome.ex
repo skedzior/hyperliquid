@@ -1,133 +1,105 @@
 defmodule Hyperliquid.Api.Exchange.UserOutcome do
   @moduledoc """
-  Split, merge and negate HIP-4 prediction market outcome positions.
+  Split, merge and negate HIP-4 outcome-market positions.
 
-  The four variants are:
+  L1-signed. The action carries exactly one variant key:
 
-  - `split_outcome/3` - mint one YES and one NO token of an outcome by locking
-    collateral
-  - `merge_outcome/3` - burn matched YES/NO pairs of an outcome back into
-    collateral
-  - `merge_question/3` - burn one token of every named outcome of a question back
-    into collateral
-  - `negate_outcome/4` - convert a named outcome's NO token into the remaining
-    named outcomes of its question
+      {"type":"userOutcome","splitOutcome":{"outcome":<uint>,"amount":"<decimal>"}}
+      {"type":"userOutcome","mergeOutcome":{"outcome":<uint>,"amount":"<decimal>"|null}}
+      {"type":"userOutcome","mergeQuestion":{"question":<uint>,"amount":"<decimal>"|null}}
+      {"type":"userOutcome","negateOutcome":{"question":<uint>,"outcome":<uint>,"amount":"<decimal>"}}
 
-  Amounts are decimal strings. A `nil` amount on the merge variants means "as
-  much as possible".
+  A `nil` amount on `merge_outcome/2` / `merge_question/2` means "merge everything".
 
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/hip-4-deployer-actions
   """
 
-  alias Hyperliquid.{Config, Signer}
+  alias Hyperliquid.Config
+  alias Hyperliquid.Api.Exchange.KeyUtils
   alias Hyperliquid.Transport.Http
 
   @doc """
-  Mint one YES and one NO token of `outcome` by locking collateral.
+  Split quote collateral into a complete set of outcome tokens.
 
   ## Parameters
-    - `outcome`: Outcome identifier
+    - `outcome`: Outcome index (integer)
     - `amount`: Amount as a decimal string
-    - `opts`: Optional parameters
-
-  ## Returns
-    - `{:ok, response}` / `{:error, term()}`
-
-  ## Examples
-
-      {:ok, result} = UserOutcome.split_outcome(7, "1")
+    - `opts`: Optional keyword list (`:private_key`, `:vault_address`)
   """
-  @spec split_outcome(non_neg_integer(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
   def split_outcome(outcome, amount, opts \\ []) when is_integer(outcome) do
-    request(%{splitOutcome: %{outcome: outcome, amount: to_amount(amount)}}, opts)
+    build_action(:splitOutcome, [{:outcome, outcome}, {:amount, to_string(amount)}])
+    |> send_action(opts)
   end
 
   @doc """
-  Burn matched YES/NO pairs of `outcome` back into collateral.
+  Merge a complete set of outcome tokens back into quote collateral.
 
   ## Parameters
-    - `outcome`: Outcome identifier
-    - `amount`: Amount as a decimal string, or `nil` for the maximum available
-    - `opts`: Optional parameters
-
-  ## Returns
-    - `{:ok, response}` / `{:error, term()}`
-
-  ## Examples
-
-      {:ok, result} = UserOutcome.merge_outcome(7, "0.5")
-      {:ok, result} = UserOutcome.merge_outcome(7, nil)
+    - `outcome`: Outcome index (integer)
+    - `amount`: Amount as a decimal string, or `nil` to merge the full balance
+    - `opts`: Optional keyword list (`:private_key`, `:vault_address`)
   """
-  @spec merge_outcome(non_neg_integer(), String.t() | nil, keyword()) ::
-          {:ok, map()} | {:error, term()}
-  def merge_outcome(outcome, amount \\ nil, opts \\ []) when is_integer(outcome) do
-    request(%{mergeOutcome: %{outcome: outcome, amount: to_amount(amount)}}, opts)
+  def merge_outcome(outcome, amount, opts \\ []) when is_integer(outcome) do
+    build_action(:mergeOutcome, [{:outcome, outcome}, {:amount, nullable_amount(amount)}])
+    |> send_action(opts)
   end
 
   @doc """
-  Burn one token of every named outcome of `question` back into collateral.
+  Merge a complete set of a question's named outcomes back into quote collateral.
 
   ## Parameters
-    - `question`: Question identifier
-    - `amount`: Amount as a decimal string, or `nil` for the maximum available
-    - `opts`: Optional parameters
-
-  ## Returns
-    - `{:ok, response}` / `{:error, term()}`
-
-  ## Examples
-
-      {:ok, result} = UserOutcome.merge_question(3, "1")
+    - `question`: Question index (integer)
+    - `amount`: Amount as a decimal string, or `nil` to merge the full balance
+    - `opts`: Optional keyword list (`:private_key`, `:vault_address`)
   """
-  @spec merge_question(non_neg_integer(), String.t() | nil, keyword()) ::
-          {:ok, map()} | {:error, term()}
-  def merge_question(question, amount \\ nil, opts \\ []) when is_integer(question) do
-    request(%{mergeQuestion: %{question: question, amount: to_amount(amount)}}, opts)
+  def merge_question(question, amount, opts \\ []) when is_integer(question) do
+    build_action(:mergeQuestion, [{:question, question}, {:amount, nullable_amount(amount)}])
+    |> send_action(opts)
   end
 
   @doc """
-  Convert a named outcome's NO token into the remaining named outcomes of its
-  question.
+  Negate an outcome within a question (convert to the complement set).
 
   ## Parameters
-    - `question`: Question identifier
-    - `outcome`: Named outcome identifier within that question
+    - `question`: Question index (integer)
+    - `outcome`: Outcome index (integer)
     - `amount`: Amount as a decimal string
-    - `opts`: Optional parameters
-
-  ## Returns
-    - `{:ok, response}` / `{:error, term()}`
-
-  ## Examples
-
-      {:ok, result} = UserOutcome.negate_outcome(3, 7, "1")
+    - `opts`: Optional keyword list (`:private_key`, `:vault_address`)
   """
-  @spec negate_outcome(non_neg_integer(), non_neg_integer(), String.t(), keyword()) ::
-          {:ok, map()} | {:error, term()}
   def negate_outcome(question, outcome, amount, opts \\ [])
       when is_integer(question) and is_integer(outcome) do
-    request(
-      %{negateOutcome: %{question: question, outcome: outcome, amount: to_amount(amount)}},
-      opts
-    )
+    build_action(:negateOutcome, [
+      {:question, question},
+      {:outcome, outcome},
+      {:amount, to_string(amount)}
+    ])
+    |> send_action(opts)
   end
 
-  # ===================== Internal =====================
+  @doc false
+  # Exposed for tests: builds the signed action without performing IO.
+  def build_action(variant, fields) do
+    # IMPORTANT: OrderedObject preserves key order for the L1 action hash.
+    Jason.OrderedObject.new([
+      {:type, "userOutcome"},
+      {variant, Jason.OrderedObject.new(fields)}
+    ])
+  end
 
-  defp to_amount(nil), do: nil
-  defp to_amount(amount) when is_binary(amount), do: amount
-  defp to_amount(amount) when is_integer(amount), do: Integer.to_string(amount)
-  defp to_amount(amount) when is_float(amount), do: Hyperliquid.Utils.float_to_string(amount)
+  defp nullable_amount(nil), do: nil
+  defp nullable_amount(amount), do: to_string(amount)
 
-  defp request(variant, opts) do
-    private_key = Hyperliquid.Api.Exchange.KeyUtils.resolve_private_key!(opts)
+  # ===================== Transport =====================
+
+  defp send_action(action, opts) do
+    private_key = KeyUtils.resolve_private_key!(opts)
     vault_address = Keyword.get(opts, :vault_address)
     nonce = generate_nonce()
     expires_after = Config.expires_after()
 
-    action = Map.merge(%{type: "userOutcome"}, variant)
+    action = Hyperliquid.Api.Exchange.Action.ordered(action)
 
-    with {:ok, action_json} <- Hyperliquid.Api.ActionEncoder.encode(action),
+    with {:ok, action_json} <- Jason.encode(action),
          {:ok, signature} <-
            sign_action(private_key, action_json, nonce, vault_address, expires_after) do
       Http.exchange_request(action, signature, nonce, vault_address, expires_after, opts)
@@ -135,18 +107,14 @@ defmodule Hyperliquid.Api.Exchange.UserOutcome do
   end
 
   defp sign_action(private_key, action_json, nonce, vault_address, expires_after) do
-    is_mainnet = Config.mainnet?()
-
-    connection_id =
-      Signer.compute_connection_id_ex(action_json, nonce, vault_address, expires_after)
-
-    case Signer.sign_l1_action(private_key, connection_id, is_mainnet) do
-      %{"r" => r, "s" => s, "v" => v} -> {:ok, %{r: r, s: s, v: v}}
-      error -> {:error, {:signing_error, error}}
-    end
+    Hyperliquid.Api.Exchange.Action.sign_json(
+      private_key,
+      action_json,
+      nonce,
+      vault_address,
+      expires_after
+    )
   end
 
-  defp generate_nonce do
-    System.system_time(:millisecond)
-  end
+  defp generate_nonce, do: Hyperliquid.Utils.generate_nonce()
 end

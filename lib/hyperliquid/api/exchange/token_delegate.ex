@@ -2,12 +2,32 @@ defmodule Hyperliquid.Api.Exchange.TokenDelegate do
   @moduledoc """
   Delegate or undelegate stake to/from a validator.
 
-  See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
+  `tokenDelegate` is a **user-signed** (EIP-712) action, signed under
+  `HyperliquidTransaction:TokenDelegate` with the fields `hyperliquidChain`,
+  `validator` (address), `wei`, `isUndelegate`, `nonce`.
+
+  Before v0.2.4 this module built its own typed data with `validator` typed as
+  `string` and `isUndelegate` declared *before* `wei`. Both the type and the
+  declaration order feed the EIP-712 type hash and the encoded struct, so those
+  signatures could never have been recovered to the sending address.
+  `@nktkas/hyperliquid` (`TokenDelegateTypes`) and `hyperliquid-python-sdk`
+  (`TOKEN_DELEGATE_TYPES`) both use the order below.
+
+  See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#delegate-or-undelegate-stake-from-validator
   """
 
+  alias Hyperliquid.Api.Exchange.{KeyUtils, UserSigned}
   alias Hyperliquid.Config
-  alias Hyperliquid.Api.Exchange.KeyUtils
   alias Hyperliquid.Transport.Http
+  alias Hyperliquid.Utils
+
+  @primary_type "HyperliquidTransaction:TokenDelegate"
+  @fields [
+    {"validator", "address"},
+    {"wei", "uint64"},
+    {"isUndelegate", "bool"},
+    {"nonce", "uint64"}
+  ]
 
   @doc """
   Delegate or undelegate stake to/from a validator.
@@ -35,60 +55,50 @@ defmodule Hyperliquid.Api.Exchange.TokenDelegate do
   """
   def request(validator, is_undelegate, wei, opts \\ []) do
     private_key = KeyUtils.resolve_private_key!(opts)
-    nonce = generate_nonce()
+    validator = String.downcase(validator)
+    nonce = Utils.generate_nonce()
     is_mainnet = Config.mainnet?()
 
-    domain = %{
-      name: "HyperliquidSignTransaction",
-      version: "1",
-      chainId: Hyperliquid.Config.signature_chain_id(),
-      verifyingContract: "0x0000000000000000000000000000000000000000"
-    }
-
-    types = %{
-      "HyperliquidTransaction:TokenDelegate" => [
-        %{name: "hyperliquidChain", type: "string"},
-        %{name: "validator", type: "string"},
-        %{name: "isUndelegate", type: "bool"},
-        %{name: "wei", type: "uint64"},
-        %{name: "nonce", type: "uint64"}
-      ]
-    }
-
-    message = %{
-      hyperliquidChain: if(is_mainnet, do: "Mainnet", else: "Testnet"),
-      validator: validator,
-      isUndelegate: is_undelegate,
-      wei: wei,
-      nonce: nonce
-    }
-
-    with {:ok, domain_json} <- Jason.encode(domain),
-         {:ok, types_json} <- Jason.encode(types),
-         {:ok, message_json} <- Jason.encode(message),
-         {:ok, signature} <-
-           KeyUtils.sign_typed_data(
-             private_key,
-             domain_json,
-             types_json,
-             message_json,
-             "HyperliquidTransaction:TokenDelegate"
-           ) do
-      action = %{
-        type: "tokenDelegate",
-        hyperliquidChain: if(is_mainnet, do: "Mainnet", else: "Testnet"),
-        signatureChainId: Hyperliquid.Config.signature_chain_id_hex(),
-        validator: validator,
-        isUndelegate: is_undelegate,
-        wei: wei,
-        nonce: nonce
-      }
-
-      Http.user_signed_request(action, signature, nonce, opts)
+    with {:ok, signature} <- sign(private_key, validator, is_undelegate, wei, nonce, is_mainnet) do
+      Http.user_signed_request(
+        build_action(validator, is_undelegate, wei, nonce, is_mainnet),
+        signature,
+        nonce,
+        opts
+      )
     end
   end
 
-  defp generate_nonce do
-    System.system_time(:millisecond)
+  @doc """
+  The wire action, in the canonical field order
+  (`type`, `signatureChainId`, `hyperliquidChain`, `validator`, `wei`,
+  `isUndelegate`, `nonce`).
+  """
+  def build_action(validator, is_undelegate, wei, nonce, is_mainnet \\ nil) do
+    Jason.OrderedObject.new([
+      {:type, "tokenDelegate"},
+      {:signatureChainId, UserSigned.signature_chain_id()},
+      {:hyperliquidChain, UserSigned.hyperliquid_chain(is_mainnet)},
+      {:validator, validator},
+      {:wei, wei},
+      {:isUndelegate, is_undelegate},
+      {:nonce, nonce}
+    ])
+  end
+
+  @doc false
+  def sign(private_key, validator, is_undelegate, wei, nonce, is_mainnet \\ nil) do
+    UserSigned.sign(
+      private_key,
+      @primary_type,
+      @fields,
+      [
+        {"validator", validator},
+        {"wei", wei},
+        {"isUndelegate", is_undelegate},
+        {"nonce", nonce}
+      ],
+      is_mainnet
+    )
   end
 end

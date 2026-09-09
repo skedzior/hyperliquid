@@ -1,32 +1,39 @@
 defmodule Hyperliquid.Api.Exchange.StakingLinkDisableTradingUser do
   @moduledoc """
-  Disable a trading user previously linked to a staking account.
+  Permanently disable a linked trading user, locking its funds.
 
-  The inverse of `Hyperliquid.Api.Exchange.LinkStakingUser`. Unlike that action
-  this one is user-signed (EIP-712 typed data), so it must be signed with the
-  master key rather than an agent wallet.
+  Sent by the **staking user**. After one year of locking, the trading user's funds are
+  automatically transferred to the staking user. **This action is irreversible.**
 
-  See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
+  Companion to `Hyperliquid.Api.Exchange.LinkStakingUser` (which is L1-signed); this
+  action is **user-signed EIP-712** with primary type
+  `HyperliquidTransaction:StakingLinkDisableTradingUser`:
 
-  ## Usage
+      hyperliquidChain  string
+      tradingUser       address
+      nonce             uint64
 
-      {:ok, result} = StakingLinkDisableTradingUser.request("0xabc...")
+  See: https://hyperliquid.gitbook.io/hyperliquid-docs/trading/fees#staking-linking
   """
 
-  alias Hyperliquid.{Config, Signer}
+  alias Hyperliquid.Api.Exchange.{KeyUtils, UserSigned}
+  alias Hyperliquid.Config
   alias Hyperliquid.Transport.Http
+  alias Hyperliquid.Utils
 
   @primary_type "HyperliquidTransaction:StakingLinkDisableTradingUser"
+  @fields [{"tradingUser", "address"}, {"nonce", "uint64"}]
 
   @doc """
-  Disable a linked trading user.
+  Permanently disable a linked trading user.
 
   ## Parameters
-    - `trading_user`: Address of the trading user to disable
+    - `trading_user`: Trading user address to disable (`"0x..."`)
     - `opts`: Optional parameters
 
   ## Options
     - `:private_key` - Private key for signing (falls back to config)
+    - `:expected_address` - When provided, validates the private key derives to this address
 
   ## Returns
     - `{:ok, response}` - Result
@@ -34,66 +41,67 @@ defmodule Hyperliquid.Api.Exchange.StakingLinkDisableTradingUser do
 
   ## Examples
 
-      {:ok, result} = StakingLinkDisableTradingUser.request("0xabc...")
+      {:ok, result} = StakingLinkDisableTradingUser.request("0x...")
   """
-  @spec request(String.t(), keyword()) :: {:ok, map()} | {:error, term()}
-  def request(trading_user, opts \\ []) when is_binary(trading_user) do
-    private_key = Hyperliquid.Api.Exchange.KeyUtils.resolve_private_key!(opts)
-    nonce = generate_nonce()
+  def request(trading_user, opts \\ []) do
+    private_key = KeyUtils.resolve_and_validate!(opts)
+    trading_user = String.downcase(trading_user)
+    nonce = Utils.generate_nonce()
     is_mainnet = Config.mainnet?()
-    hyperliquid_chain = if is_mainnet, do: "Mainnet", else: "Testnet"
 
-    domain = %{
-      name: "HyperliquidSignTransaction",
-      version: "1",
-      chainId: Hyperliquid.Config.signature_chain_id(),
-      verifyingContract: "0x0000000000000000000000000000000000000000"
-    }
-
-    types = %{
-      @primary_type => [
-        %{name: "hyperliquidChain", type: "string"},
-        %{name: "tradingUser", type: "address"},
-        %{name: "nonce", type: "uint64"}
-      ]
-    }
-
-    message = %{
-      hyperliquidChain: hyperliquid_chain,
-      tradingUser: trading_user,
-      nonce: nonce
-    }
-
-    with {:ok, domain_json} <- Jason.encode(domain),
-         {:ok, types_json} <- Jason.encode(types),
-         {:ok, message_json} <- Jason.encode(message) do
-      case Signer.sign_typed_data(
-             private_key,
-             domain_json,
-             types_json,
-             message_json,
-             @primary_type
-           ) do
-        %{"r" => r, "s" => s, "v" => v} ->
-          # Field order matters for the request body, so build it explicitly.
-          action =
-            Jason.OrderedObject.new([
-              {:type, "stakingLinkDisableTradingUser"},
-              {:signatureChainId, Hyperliquid.Config.signature_chain_id_hex()},
-              {:hyperliquidChain, hyperliquid_chain},
-              {:tradingUser, trading_user},
-              {:nonce, nonce}
-            ])
-
-          Http.user_signed_request(action, %{r: r, s: s, v: v}, nonce, opts)
-
-        error ->
-          {:error, {:signing_error, error}}
-      end
+    with {:ok, signature} <- sign(private_key, trading_user, nonce, is_mainnet) do
+      Http.user_signed_request(
+        build_action(trading_user, nonce, is_mainnet),
+        signature,
+        nonce,
+        opts
+      )
     end
   end
 
-  defp generate_nonce do
-    System.system_time(:millisecond)
+  @doc """
+  The wire action, in the canonical field order
+  (`type`, `signatureChainId`, `hyperliquidChain`, `tradingUser`, `nonce`).
+  """
+  def build_action(trading_user, nonce, is_mainnet \\ nil) do
+    Jason.OrderedObject.new([
+      {:type, "stakingLinkDisableTradingUser"},
+      {:signatureChainId, UserSigned.signature_chain_id()},
+      {:hyperliquidChain, UserSigned.hyperliquid_chain(is_mainnet)},
+      {:tradingUser, trading_user},
+      {:nonce, nonce}
+    ])
+  end
+
+  @doc false
+  # Exposed for tests: the EIP-712 primary type used for this action.
+  def primary_type, do: @primary_type
+
+  @doc false
+  # Exposed for tests: the EIP-712 type table used for this action, as built by
+  # `Hyperliquid.Api.Exchange.UserSigned` from `@fields`.
+  def eip712_types do
+    %{
+      "EIP712Domain" => [
+        %{name: "name", type: "string"},
+        %{name: "version", type: "string"},
+        %{name: "chainId", type: "uint256"},
+        %{name: "verifyingContract", type: "address"}
+      ],
+      @primary_type =>
+        [%{name: "hyperliquidChain", type: "string"}] ++
+          Enum.map(@fields, fn {name, type} -> %{name: name, type: type} end)
+    }
+  end
+
+  @doc false
+  def sign(private_key, trading_user, nonce, is_mainnet \\ nil) do
+    UserSigned.sign(
+      private_key,
+      @primary_type,
+      @fields,
+      [{"tradingUser", trading_user}, {"nonce", nonce}],
+      is_mainnet
+    )
   end
 end

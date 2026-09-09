@@ -119,3 +119,38 @@ storage: [
   context_params: [:user]
 ]
 ```
+
+## Endpoint Registry
+
+`Hyperliquid.Api.Registry` lists every endpoint module, grouped by context
+(`:info`, `:exchange`, `:subscription`, `:explorer`, `:stats`). The list is
+exhaustive: `test/api/registry_coverage_test.exs` globs
+`lib/hyperliquid/api/<context>/` at test time and fails if a module is missing
+or stale.
+
+```elixir
+Registry.list_endpoints()                     # every module that exposes metadata
+Registry.list_by_type(:subscription)          # all 31 channels
+Registry.list_context_endpoints(:exchange)    # all 60 modules, metadata or not
+Registry.get_endpoint_info("fastAssetCtxs")
+Registry.resolve_endpoint(:info, :all_mids)
+```
+
+Metadata comes from one of two callbacks:
+
+| DSL | Callback | Contexts |
+|-----|----------|----------|
+| `use Hyperliquid.Api.Endpoint` | `__endpoint_info__/0` | info, explorer, stats |
+| `use Hyperliquid.Api.SubscriptionEndpoint` | `__subscription_info__/0` | subscription |
+
+`list_endpoints/0` normalises `__subscription_info__/0` into the
+`__endpoint_info__/0` shape, so subscriptions appear alongside everything else.
+
+Most `Exchange` modules are hand-written action builders using neither DSL, so
+they expose no metadata. They are still registered — `resolve_endpoint/2` and
+`list_context_endpoints/1` see them — but they do not appear in
+`list_endpoints/0`. Two exceptions (`Noop`, `SetDisplayName`) use
+`Hyperliquid.Api.ExchangeEndpoint` and do.
+
+Deliberately unregistered: `Hyperliquid.Api.Exchange.KeyUtils` (a helper) and
+`Hyperliquid.Api.MultiSig` (a signing orchestrator, not an endpoint).

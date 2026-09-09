@@ -16,7 +16,8 @@ defmodule Hyperliquid.Api.Subscription.WebData3 do
   - User state is separated into its own object
   - Supports multiple perpetual DEX states (for HIP-3 DEX abstraction)
   - More structured data organization
-  - Includes DEX abstraction flag
+  - Includes DEX abstraction flag (`dex_abstraction_enabled`) *and* the account
+    abstraction mode (`abstraction`)
 
   ## Usage
 
@@ -66,6 +67,12 @@ defmodule Hyperliquid.Api.Subscription.WebData3 do
       field(:user, :string)
       field(:opt_out_of_spot_dusting, :boolean, default: false)
       field(:dex_abstraction_enabled, :boolean, default: false)
+
+      # Account abstraction mode: "unifiedAccount" | "portfolioMargin" | "disabled".
+      # Absent from the payload when the account is on the default mode.
+      # The former "dexAbstraction" value was removed upstream in v0.33.3 - DEX
+      # abstraction is now the separate `dex_abstraction_enabled` boolean above.
+      field(:abstraction, :string)
     end
 
     # Per-DEX states (array to support multiple DEXes)
@@ -133,7 +140,8 @@ defmodule Hyperliquid.Api.Subscription.WebData3 do
       :is_vault,
       :user,
       :opt_out_of_spot_dusting,
-      :dex_abstraction_enabled
+      :dex_abstraction_enabled,
+      :abstraction
     ])
     |> validate_required([:cum_ledger, :server_time, :is_vault, :user])
     |> validate_format(:user, ~r/^0x[0-9a-fA-F]{40}$/)
@@ -187,11 +195,16 @@ defmodule Hyperliquid.Api.Subscription.WebData3 do
 
   defp maybe_snake_case_keys(value), do: value
 
+  # `String.to_existing_atom/1`, never `String.to_atom/1`: keys can originate in
+  # server frames and the atom table is never garbage collected.
   defp to_snake_case(key) when is_atom(key) do
-    key
-    |> Atom.to_string()
-    |> to_snake_case()
-    |> String.to_atom()
+    snake = key |> Atom.to_string() |> to_snake_case()
+
+    try do
+      String.to_existing_atom(snake)
+    rescue
+      ArgumentError -> snake
+    end
   end
 
   # Single-character keys have no word boundary to split on. Macro.underscore/1
@@ -247,6 +260,13 @@ defmodule Hyperliquid.Api.Subscription.WebData3 do
   """
   def main_dex_state(%__MODULE__{perp_dex_states: [main | _]}), do: main
   def main_dex_state(%__MODULE__{perp_dex_states: []}), do: nil
+
+  @doc """
+  Account abstraction mode: `"unifiedAccount"`, `"portfolioMargin"`, `"disabled"`,
+  or `nil` when the account is on the default mode.
+  """
+  def abstraction(%__MODULE__{user_state: %{abstraction: abstraction}}), do: abstraction
+  def abstraction(_), do: nil
 
   @doc """
   Check if DEX abstraction is enabled for this user.

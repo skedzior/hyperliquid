@@ -15,104 +15,41 @@ defmodule Hyperliquid.Api.ActionEncoder do
       0x5a9622bad83165511b1bfda92b4274f841547cbad8dc47bac0bcf4b29dd5f17a
       0x716ee448bc143896bfad2dcda1baec8984550e6276caabb4c5e48ec11975fb28
 
-  This module renders an action into `Jason.OrderedObject` values using the field
-  order fixed by the reference implementations, so the signed preimage is stable
-  across runs and matches what the exchange computes.
-
   Both the signed preimage and the request body must be built from the value
   returned by `canonicalize/1`, otherwise the bytes that were hashed and the
   bytes that were sent can disagree.
 
-  ## Field order
+  ## Where the field order lives
 
-  `@field_order` is a single global ranking applied at every level of the action.
-  A key that does not appear in it sorts after every known key, lexicographically,
-  so unrecognized actions still encode deterministically even when their canonical
-  order is unknown.
+  This module is the encoding entry point; the field order itself is declared
+  per action type in `Hyperliquid.Api.Exchange.Action`, transcribed from the
+  `@nktkas/hyperliquid` valibot request schemas (the same orders the reference
+  Python SDK's dict literals produce).
 
-  The trading-path ranking is taken from the reference Python SDK
-  (`hyperliquid/utils/signing.py` — `order_wires_to_order_action/3`,
-  `order_request_to_order_wire/2`, `order_type_to_wire/1`) and verified against it
-  by `test/api/action_encoder_test.exs`.
-
-  Keys for the newer actions (HIP-4 outcomes, gossip priority, agent asset
-  transfers) are ordered to match the field order declared by the nktkas
-  TypeScript SDK's request schemas, which is the order its own `canonicalize`
-  emits. Those have no published reference hashes to check against, so unlike the
-  trading path they are not verified end to end — they are as good as that
-  schema.
+  It used to carry a single global key ranking of its own. That was replaced by
+  the per-action-type schemas because a global ranking can only be correct while
+  no key needs a different relative position in two different shapes — an
+  assumption that holds for the trading path but has no reason to hold for every
+  action Hyperliquid adds.
   """
 
-  # Ordered by rank. Keys absent from this list sort last, lexicographically.
-  #
-  # No key needs a different relative position in two different shapes, which is
-  # what lets a single global ranking work; action_encoder_test.exs asserts this
-  # for every shape covered here.
-  @field_order ~w(
-    type
-    orders grouping builder
-    cancels modifies
-    oid order
-    asset isCross leverage isBuy ntli
-    time
-    a b p s r t c f o cloid
-    limit trigger
-    tif
-    isMarket triggerPx tpsl
-    activate deactivate venueName
-    splitOutcome mergeOutcome mergeQuestion negateOutcome
-    question outcome
-    destination sourceDex destinationDex token role input create
-    dex ntl isDeposit
-    slotId ip maxGas
-    amount fromSubAccount nonce
-  )
-
-  @ranks @field_order |> Enum.with_index() |> Map.new()
-  @unranked length(@field_order)
+  alias Hyperliquid.Api.Exchange.Action
 
   @doc """
-  Recursively rewrite an action so that every map becomes an order-preserving
-  `Jason.OrderedObject` in canonical field order.
+  Rewrite an action into `Jason.OrderedObject` values in canonical field order.
 
-  Lists are walked element-wise. Scalars are returned unchanged.
+  Idempotent: canonicalizing an already-canonical value returns it unchanged, so
+  it is safe to pipe an action through this on the way to the wire even when the
+  endpoint module has already ordered it.
   """
   @spec canonicalize(term()) :: term()
-  def canonicalize(%Jason.OrderedObject{values: values}) do
-    %Jason.OrderedObject{values: Enum.map(values, fn {k, v} -> {k, canonicalize(v)} end)}
-  end
-
-  def canonicalize(%_struct{} = value), do: value
-
-  def canonicalize(map) when is_map(map) do
-    values =
-      map
-      |> Enum.map(fn {k, v} -> {to_key(k), canonicalize(v)} end)
-      |> Enum.sort_by(fn {k, _v} -> {rank(k), k} end)
-
-    %Jason.OrderedObject{values: values}
-  end
-
-  def canonicalize(list) when is_list(list), do: Enum.map(list, &canonicalize/1)
-
-  def canonicalize(value), do: value
+  defdelegate canonicalize(action), to: Action, as: :ordered
 
   @doc """
-  Encode an action as canonical JSON.
+  Canonicalize and JSON-encode an action.
 
-  Returns the same `{:ok, iodata}` / `{:error, reason}` shape as `Jason.encode/1`.
+  Returns `{:ok, json}` or `{:error, reason}` from `Jason.encode/1`.
   """
-  @spec encode(term()) :: {:ok, String.t()} | {:error, Exception.t()}
+  @spec encode(term()) :: {:ok, String.t()} | {:error, term()}
   def encode(action), do: action |> canonicalize() |> Jason.encode()
-
-  @doc """
-  The canonical field ranking, most significant first. Exposed for tests.
-  """
-  @spec field_order() :: [String.t()]
-  def field_order, do: @field_order
-
-  defp to_key(k) when is_atom(k), do: Atom.to_string(k)
-  defp to_key(k) when is_binary(k), do: k
-
-  defp rank(key), do: Map.get(@ranks, key, @unranked)
 end

@@ -1,36 +1,43 @@
 defmodule Hyperliquid.WebSocket.Connection do
   @moduledoc """
-  WebSocket connection handler with automatic reconnection.
+  A single WebSocket connection to Hyperliquid, with non-blocking connect,
+  jittered reconnect and paced (re)subscription.
 
-  Manages a single WebSocket connection to Hyperliquid, handling:
-  - Connection establishment and authentication
-  - Subscription management
-  - Message routing
-  - Automatic reconnection with exponential backoff
+  Design notes:
+
+    * **Nothing on the subscribe path blocks.** `subscribe/3` and `unsubscribe/2`
+      are casts; connecting is fully asynchronous (`:gun_up` / `:gun_upgrade`
+      messages, never `:gun.await_up/2`), so the Manager is never held up by a
+      TCP+TLS handshake.
+    * **Frames are dispatched straight to subscribers.** The connection decodes a
+      frame and fans it out through the `Hyperliquid.WebSocket.Dispatch` registry
+      using the full subscription identity (channel + coin/user/interval/dex), so
+      a BTC `l2Book` subscriber never sees ETH data and consumer callbacks never
+      run in this process or in the Manager.
+    * **Reconnects are budgeted.** Backoff is exponential with jitter, and every
+      dial and every batch of subscribe frames is charged against the shared
+      per-IP `Hyperliquid.WebSocket.Budget`, so a mass disconnect cannot storm
+      the rate limits.
 
   ## Usage
 
-  Typically managed by `Hyperliquid.WebSocket.Manager`, but can be used directly:
+  Typically managed by `Hyperliquid.WebSocket.Manager`, but usable directly:
 
-      {:ok, pid} = Connection.start_link(
-        key: "l2Book:BTC:5",
-        manager: manager_pid,
-        url: "wss://api.hyperliquid.xyz/ws"
-      )
-
-      # Subscribe
-      Connection.subscribe(pid, %{type: "l2Book", coin: "BTC", nSigFigs: 5}, "sub_123")
-
-      # Unsubscribe
+      {:ok, pid} = Connection.start_link(key: "conn:1", manager: self(), url: url)
+      Connection.subscribe(pid, %{type: "l2Book", coin: "BTC"}, "sub_123")
       Connection.unsubscribe(pid, "sub_123")
   """
 
   use GenServer
   require Logger
 
+  alias Hyperliquid.WebSocket.{Budget, Limits, SubscriptionKey}
+
   @default_url "wss://api.hyperliquid.xyz/ws"
   @heartbeat_interval 30_000
-  @reconnect_delays [1_000, 2_000, 5_000, 10_000, 30_000, 60_000]
+  @connect_timeout 15_000
+  @base_reconnect_delay 1_000
+  @max_reconnect_delay 60_000
 
   defmodule State do
     @moduledoc false
@@ -43,8 +50,12 @@ defmodule Hyperliquid.WebSocket.Connection do
       :subscriptions,
       :reconnect_attempts,
       :heartbeat_ref,
+      :connect_timer,
+      :flush_ref,
       :status,
-      pending_subscriptions: %{}
+      :transport,
+      pending_subscriptions: %{},
+      outbox: []
     ]
   end
 
@@ -56,8 +67,9 @@ defmodule Hyperliquid.WebSocket.Connection do
   ## Options
 
   - `:key` - Required. Connection identifier
-  - `:manager` - Required. Manager PID for message routing
+  - `:manager` - Required. Manager PID for control-plane messages
   - `:url` - WebSocket URL (default: #{@default_url})
+  - `:transport` - Module implementing the gun-like transport (tests inject a fake)
   """
   def start_link(opts) do
     key = Keyword.fetch!(opts, :key)
@@ -66,10 +78,13 @@ defmodule Hyperliquid.WebSocket.Connection do
 
   @doc """
   Subscribe to a channel on this connection.
+
+  Asynchronous: the request is stored immediately and sent as soon as the socket
+  is up. Never blocks the caller.
   """
   @spec subscribe(pid() | String.t(), map(), String.t()) :: :ok | {:error, term()}
   def subscribe(connection, request, subscription_id) when is_pid(connection) do
-    GenServer.call(connection, {:subscribe, request, subscription_id})
+    GenServer.cast(connection, {:subscribe, request, subscription_id})
   end
 
   def subscribe(key, request, subscription_id) when is_binary(key) do
@@ -79,12 +94,10 @@ defmodule Hyperliquid.WebSocket.Connection do
     end
   end
 
-  @doc """
-  Unsubscribe from a channel.
-  """
-  @spec unsubscribe(pid() | String.t(), String.t()) :: :ok
+  @doc "Unsubscribe from a channel. Asynchronous."
+  @spec unsubscribe(pid() | String.t(), String.t()) :: :ok | {:error, term()}
   def unsubscribe(connection, subscription_id) when is_pid(connection) do
-    GenServer.call(connection, {:unsubscribe, subscription_id})
+    GenServer.cast(connection, {:unsubscribe, subscription_id})
   end
 
   def unsubscribe(key, subscription_id) when is_binary(key) do
@@ -94,12 +107,12 @@ defmodule Hyperliquid.WebSocket.Connection do
     end
   end
 
-  @doc """
-  Get connection status.
-  """
-  @spec status(pid() | String.t()) :: map()
+  @doc "Get connection status. Short timeout — never blocks a caller for long."
+  @spec status(pid() | String.t()) :: map() | {:error, term()}
   def status(connection) when is_pid(connection) do
-    GenServer.call(connection, :status)
+    GenServer.call(connection, :status, 1_000)
+  catch
+    :exit, _ -> {:error, :unavailable}
   end
 
   def status(key) when is_binary(key) do
@@ -109,9 +122,7 @@ defmodule Hyperliquid.WebSocket.Connection do
     end
   end
 
-  @doc """
-  Lookup connection by key.
-  """
+  @doc "Lookup connection by key."
   @spec lookup(String.t()) :: {:ok, pid()} | {:error, :not_found}
   def lookup(key) do
     case Registry.lookup(Hyperliquid.WebSocket.Registry, key) do
@@ -120,65 +131,73 @@ defmodule Hyperliquid.WebSocket.Connection do
     end
   end
 
+  @doc """
+  Reconnect delay for `attempt`, in milliseconds.
+
+  Exponential (1s, 2s, 4s, ... capped at 60s) with jitter over the lower half of
+  each bucket, so sockets that dropped together do not redial in lockstep.
+  """
+  @spec backoff_delay(non_neg_integer()) :: pos_integer()
+  def backoff_delay(attempt) do
+    {low, high} = backoff_range(attempt)
+    low + :rand.uniform(high - low + 1) - 1
+  end
+
+  @doc "The `{min, max}` delay bounds for `attempt` (jitter window)."
+  @spec backoff_range(non_neg_integer()) :: {pos_integer(), pos_integer()}
+  def backoff_range(attempt) do
+    ceiling =
+      @base_reconnect_delay
+      |> Kernel.*(round(:math.pow(2, min(attempt, 16))))
+      |> min(@max_reconnect_delay)
+
+    {div(ceiling, 2), ceiling}
+  end
+
   # ===================== Server Callbacks =====================
 
   @impl true
   def init(opts) do
-    key = Keyword.fetch!(opts, :key)
-    manager = Keyword.fetch!(opts, :manager)
-    url = Keyword.get(opts, :url, @default_url)
-
     state = %State{
-      key: key,
-      manager: manager,
-      url: url,
+      key: Keyword.fetch!(opts, :key),
+      manager: Keyword.fetch!(opts, :manager),
+      url: Keyword.get(opts, :url, @default_url),
+      transport: Keyword.get(opts, :transport, :gun),
       subscriptions: %{},
       reconnect_attempts: 0,
       status: :disconnected
     }
 
-    # Connect asynchronously
     send(self(), :connect)
 
     {:ok, state}
   end
 
   @impl true
-  def handle_call({:subscribe, request, subscription_id}, _from, state) do
-    # Store subscription
-    subscriptions = Map.put(state.subscriptions, subscription_id, request)
-    # Track as pending until we get a subscriptionResponse
-    pending_subscriptions = Map.put(state.pending_subscriptions, subscription_id, request)
-    state = %{state | subscriptions: subscriptions, pending_subscriptions: pending_subscriptions}
+  def handle_cast({:subscribe, request, subscription_id}, state) do
+    state = %{
+      state
+      | subscriptions: Map.put(state.subscriptions, subscription_id, request),
+        pending_subscriptions: Map.put(state.pending_subscriptions, subscription_id, request)
+    }
 
-    # Send to WebSocket if connected
-    result =
-      if state.status == :connected do
-        send_message(state, %{method: "subscribe", subscription: request})
-      else
-        :ok
-      end
-
-    {:reply, result, state}
+    {:noreply, enqueue(state, [%{method: "subscribe", subscription: request}])}
   end
 
   @impl true
-  def handle_call({:unsubscribe, subscription_id}, _from, state) do
+  def handle_cast({:unsubscribe, subscription_id}, state) do
     case Map.get(state.subscriptions, subscription_id) do
       nil ->
-        {:reply, {:error, :not_found}, state}
+        {:noreply, state}
 
       request ->
-        # Remove from subscriptions
-        subscriptions = Map.delete(state.subscriptions, subscription_id)
-        state = %{state | subscriptions: subscriptions}
+        state = %{
+          state
+          | subscriptions: Map.delete(state.subscriptions, subscription_id),
+            pending_subscriptions: Map.delete(state.pending_subscriptions, subscription_id)
+        }
 
-        # Send unsubscribe if connected
-        if state.status == :connected do
-          send_message(state, %{method: "unsubscribe", subscription: request})
-        end
-
-        {:reply, :ok, state}
+        {:noreply, enqueue(state, [%{method: "unsubscribe", subscription: request}])}
     end
   end
 
@@ -188,6 +207,7 @@ defmodule Hyperliquid.WebSocket.Connection do
       key: state.key,
       status: state.status,
       subscriptions: map_size(state.subscriptions),
+      queued: length(state.outbox),
       reconnect_attempts: state.reconnect_attempts
     }
 
@@ -196,54 +216,28 @@ defmodule Hyperliquid.WebSocket.Connection do
 
   @impl true
   def handle_info(:connect, state) do
-    connect_start = System.monotonic_time()
-
-    :telemetry.execute(
-      [:hyperliquid, :ws, :connect, :start],
-      %{system_time: System.system_time()},
-      %{key: state.key}
-    )
-
-    case connect(state.url) do
-      {:ok, conn, stream_ref} ->
-        duration = System.monotonic_time() - connect_start
-
-        :telemetry.execute(
-          [:hyperliquid, :ws, :connect, :stop],
-          %{duration: duration},
-          %{key: state.key}
+    case Budget.take_connection() do
+      {:error, {:rate_limited, retry_after}} ->
+        Logger.debug(
+          "WebSocket connect for #{state.key} deferred #{retry_after}ms (per-IP connect budget)"
         )
 
-        Logger.info("WebSocket connected: #{state.key}")
+        Process.send_after(self(), :connect, retry_after + :rand.uniform(250))
+        {:noreply, %{state | status: :reconnecting}}
 
-        # Schedule heartbeat
-        heartbeat_ref = Process.send_after(self(), :heartbeat, @heartbeat_interval)
-
-        state = %{
-          state
-          | conn: conn,
-            stream_ref: stream_ref,
-            status: :upgrading,
-            reconnect_attempts: 0,
-            heartbeat_ref: heartbeat_ref
-        }
-
-        # Wait for gun_upgrade message before resubscribing
-        {:noreply, state}
-
-      {:error, reason} ->
-        duration = System.monotonic_time() - connect_start
-
-        :telemetry.execute(
-          [:hyperliquid, :ws, :connect, :exception],
-          %{duration: duration},
-          %{key: state.key, reason: reason}
-        )
-
-        Logger.warning("WebSocket connection failed (#{state.key}): #{inspect(reason)}")
-        schedule_reconnect(state)
+      :ok ->
+        do_connect(state)
     end
   end
+
+  @impl true
+  def handle_info(:connect_timeout, %State{status: status} = state)
+      when status in [:opening, :upgrading] do
+    Logger.warning("WebSocket connect timed out (#{state.key})")
+    handle_disconnect(state)
+  end
+
+  def handle_info(:connect_timeout, state), do: {:noreply, state}
 
   @impl true
   def handle_info(:heartbeat, state) do
@@ -263,12 +257,45 @@ defmodule Hyperliquid.WebSocket.Connection do
   end
 
   @impl true
+  def handle_info(:flush_outbox, state) do
+    {:noreply, flush_outbox(%{state | flush_ref: nil})}
+  end
+
+  @impl true
+  def handle_info({:gun_up, conn, _protocol}, %State{conn: conn} = state) do
+    uri = URI.parse(state.url)
+    stream_ref = transport_ws_upgrade(state, conn, uri.path || "/")
+    {:noreply, %{state | stream_ref: stream_ref, status: :upgrading}}
+  end
+
+  def handle_info({:gun_up, _conn, _protocol}, state), do: {:noreply, state}
+
+  @impl true
+  def handle_info({:gun_upgrade, _conn, _stream_ref, ["websocket"], _headers}, state) do
+    Logger.info("WebSocket connected: #{state.key}")
+
+    :telemetry.execute([:hyperliquid, :ws, :connect, :stop], %{duration: 0}, %{key: state.key})
+
+    if state.connect_timer, do: Process.cancel_timer(state.connect_timer)
+    heartbeat_ref = Process.send_after(self(), :heartbeat, @heartbeat_interval)
+
+    # Reset the backoff only once the *upgrade* succeeds. A server that accepts
+    # TCP but rejects the upgrade (the shape of a connection-limit rejection)
+    # must keep backing off rather than redialling once a second forever.
+    state = %{
+      state
+      | status: :connected,
+        reconnect_attempts: 0,
+        heartbeat_ref: heartbeat_ref,
+        connect_timer: nil
+    }
+
+    {:noreply, resubscribe_all(state)}
+  end
+
+  @impl true
   def handle_info({:gun_ws, _conn, _stream_ref, {:text, data}}, state) do
-    :telemetry.execute(
-      [:hyperliquid, :ws, :message, :received],
-      %{count: 1},
-      %{key: state.key}
-    )
+    :telemetry.execute([:hyperliquid, :ws, :message, :received], %{count: 1}, %{key: state.key})
 
     case Jason.decode(data) do
       {:ok, message} ->
@@ -280,14 +307,23 @@ defmodule Hyperliquid.WebSocket.Connection do
     end
   end
 
-  @impl true
   def handle_info({:gun_ws, _conn, _stream_ref, {:close, code, reason}}, state) do
     Logger.warning("WebSocket closed (#{state.key}): #{code} - #{reason}")
     handle_disconnect(state)
   end
 
+  def handle_info({:gun_ws, _conn, _stream_ref, :close}, state) do
+    Logger.warning("WebSocket closed (#{state.key})")
+    handle_disconnect(state)
+  end
+
   @impl true
   def handle_info({:gun_down, _conn, _protocol, reason, _killed}, state) do
+    Logger.warning("WebSocket down (#{state.key}): #{inspect(reason)}")
+    handle_disconnect(state)
+  end
+
+  def handle_info({:gun_down, _conn, _protocol, reason}, state) do
     Logger.warning("WebSocket down (#{state.key}): #{inspect(reason)}")
     handle_disconnect(state)
   end
@@ -298,21 +334,15 @@ defmodule Hyperliquid.WebSocket.Connection do
     handle_disconnect(state)
   end
 
-  @impl true
-  def handle_info({:gun_upgrade, _conn, _stream_ref, ["websocket"], _headers}, state) do
-    Logger.debug("WebSocket upgrade complete: #{state.key}")
-
-    # Now we can set status to connected and resubscribe
-    state = %{state | status: :connected}
-    resubscribe_all(state)
-
-    {:noreply, state}
+  def handle_info({:gun_error, _conn, reason}, state) do
+    Logger.error("WebSocket error (#{state.key}): #{inspect(reason)}")
+    handle_disconnect(state)
   end
 
   @impl true
-  def handle_info({:gun_up, _conn, _protocol}, state) do
-    # Gun connection established (before WS upgrade) — handled via :gun_upgrade
-    {:noreply, state}
+  def handle_info({:gun_response, _conn, _stream_ref, _fin, status, _headers}, state) do
+    Logger.warning("WebSocket upgrade rejected (#{state.key}): HTTP #{status}")
+    handle_disconnect(state)
   end
 
   @impl true
@@ -325,13 +355,9 @@ defmodule Hyperliquid.WebSocket.Connection do
   def terminate(reason, state) do
     Logger.info("Connection terminating (#{state.key}): #{inspect(reason)}")
 
-    if state.heartbeat_ref do
-      Process.cancel_timer(state.heartbeat_ref)
-    end
-
-    if state.conn do
-      :gun.close(state.conn)
-    end
+    if state.heartbeat_ref, do: Process.cancel_timer(state.heartbeat_ref)
+    if state.connect_timer, do: Process.cancel_timer(state.connect_timer)
+    if state.conn, do: transport_close(state, state.conn)
 
     :ok
   end
@@ -342,14 +368,36 @@ defmodule Hyperliquid.WebSocket.Connection do
     {:via, Registry, {Hyperliquid.WebSocket.Registry, key}}
   end
 
-  defp connect(url) do
-    uri = URI.parse(url)
-    host = String.to_charlist(uri.host)
-    port = uri.port || 443
+  defp do_connect(state) do
+    :telemetry.execute(
+      [:hyperliquid, :ws, :connect, :start],
+      %{system_time: System.system_time()},
+      %{key: state.key}
+    )
 
+    uri = URI.parse(state.url)
+
+    case transport_open(state, uri) do
+      {:ok, conn} ->
+        connect_timer = Process.send_after(self(), :connect_timeout, @connect_timeout)
+        {:noreply, %{state | conn: conn, status: :opening, connect_timer: connect_timer}}
+
+      {:error, reason} ->
+        :telemetry.execute(
+          [:hyperliquid, :ws, :connect, :exception],
+          %{duration: 0},
+          %{key: state.key, reason: reason}
+        )
+
+        Logger.warning("WebSocket connection failed (#{state.key}): #{inspect(reason)}")
+        schedule_reconnect(state)
+    end
+  end
+
+  defp transport_open(%State{transport: :gun}, uri) do
     opts = %{
       protocols: [:http],
-      transport: :tls,
+      transport: if(uri.scheme in ["wss", "https"], do: :tls, else: :tcp),
       # Disable gun's built-in retry — we manage reconnection ourselves
       retry: 0,
       tls_opts: [
@@ -362,29 +410,73 @@ defmodule Hyperliquid.WebSocket.Connection do
       ]
     }
 
-    case :gun.open(host, port, opts) do
-      {:ok, conn} ->
-        case :gun.await_up(conn, 5_000) do
-          {:ok, _protocol} ->
-            path = uri.path || "/"
-            stream_ref = :gun.ws_upgrade(conn, path)
-            {:ok, conn, stream_ref}
+    :gun.open(String.to_charlist(uri.host), uri.port || 443, opts)
+  end
 
-          {:error, reason} ->
-            :gun.close(conn)
-            {:error, reason}
-        end
+  defp transport_open(%State{transport: mod}, uri), do: mod.open(uri)
 
-      {:error, reason} ->
-        {:error, reason}
+  defp transport_ws_upgrade(%State{transport: :gun}, conn, path), do: :gun.ws_upgrade(conn, path)
+  defp transport_ws_upgrade(%State{transport: mod}, conn, path), do: mod.ws_upgrade(conn, path)
+
+  defp transport_send(%State{transport: :gun}, conn, stream_ref, frame),
+    do: :gun.ws_send(conn, stream_ref, frame)
+
+  defp transport_send(%State{transport: mod}, conn, stream_ref, frame),
+    do: mod.ws_send(conn, stream_ref, frame)
+
+  defp transport_close(%State{transport: :gun}, conn), do: :gun.close(conn)
+  defp transport_close(%State{transport: mod}, conn), do: mod.close(conn)
+
+  # ===================== Outbound pacing =====================
+
+  # Every outbound subscribe/unsubscribe frame goes through a paced queue so
+  # that a reconnect replaying hundreds of subscriptions cannot exceed the
+  # per-IP message budget.
+  defp enqueue(state, messages) do
+    state = %{state | outbox: state.outbox ++ messages}
+
+    if state.status == :connected do
+      flush_outbox(state)
+    else
+      state
     end
   end
 
-  defp send_message(%State{conn: conn, stream_ref: stream_ref}, message)
+  defp flush_outbox(%State{outbox: []} = state), do: state
+
+  defp flush_outbox(%State{status: status} = state) when status != :connected, do: state
+
+  defp flush_outbox(state) do
+    batch_size = Limits.resubscribe_batch_size()
+    {batch, rest} = Enum.split(state.outbox, batch_size)
+
+    case Budget.take_messages(length(batch)) do
+      :ok ->
+        Enum.each(batch, &send_message(state, &1))
+        state = %{state | outbox: rest}
+
+        if rest == [] do
+          state
+        else
+          schedule_flush(state, Limits.resubscribe_batch_interval_ms())
+        end
+
+      {:error, {:rate_limited, retry_after}} ->
+        schedule_flush(state, retry_after + :rand.uniform(50))
+    end
+  end
+
+  defp schedule_flush(%State{flush_ref: ref} = state, _delay) when is_reference(ref), do: state
+
+  defp schedule_flush(state, delay) do
+    %{state | flush_ref: Process.send_after(self(), :flush_outbox, delay)}
+  end
+
+  defp send_message(%State{conn: conn, stream_ref: stream_ref} = state, message)
        when not is_nil(conn) and not is_nil(stream_ref) do
     case Jason.encode(message) do
       {:ok, json} ->
-        :gun.ws_send(conn, stream_ref, {:text, json})
+        transport_send(state, conn, stream_ref, {:text, json})
         :ok
 
       {:error, reason} ->
@@ -394,46 +486,34 @@ defmodule Hyperliquid.WebSocket.Connection do
 
   defp send_message(_state, _message), do: {:error, :not_connected}
 
-  defp handle_ws_message(%{"channel" => "subscriptionResponse", "data" => data} = msg, state) do
-    Logger.debug("Subscription response: #{inspect(msg)}")
+  # ===================== Inbound =====================
 
-    # Clear pending subscriptions that match this response
+  defp handle_ws_message(%{"channel" => "subscriptionResponse", "data" => data}, state) do
     pending_subscriptions =
       state.pending_subscriptions
-      |> Enum.reject(fn {_id, req} ->
-        # Match if subscription type and key fields match
-        matches_response?(req, data)
-      end)
+      |> Enum.reject(fn {_id, req} -> matches_response?(req, data) end)
       |> Map.new()
 
     {:noreply, %{state | pending_subscriptions: pending_subscriptions}}
   end
 
-  defp handle_ws_message(%{"channel" => "subscriptionResponse"} = msg, state) do
-    Logger.debug("Subscription response: #{inspect(msg)}")
+  defp handle_ws_message(%{"channel" => "subscriptionResponse"}, state) do
     {:noreply, state}
   end
 
-  defp handle_ws_message(%{"channel" => "error", "data" => error_msg} = message, state) do
-    # Check if this is an "Already subscribed" error - these are non-fatal
+  defp handle_ws_message(%{"channel" => "error", "data" => error_msg} = message, state)
+       when is_binary(error_msg) do
     if String.contains?(error_msg, "Already subscribed") do
       Logger.warning("WebSocket duplicate subscription from #{state.key}: #{error_msg}")
-      # Don't fail any subscriptions - the subscription is already active on the server
-      # Just clear pending subscriptions since they're already subscribed
       {:noreply, %{state | pending_subscriptions: %{}}}
     else
       Logger.error("WebSocket error from #{state.key}: #{error_msg}")
-
-      # For other errors, try to match specific subscription if possible
-      # Currently we fail all pending subscriptions since we can't reliably match them
       failed_sub_ids = Map.keys(state.pending_subscriptions)
 
-      # Notify manager to remove failed subscriptions
       if state.manager && Process.alive?(state.manager) do
         send(state.manager, {:ws_error, self(), message, failed_sub_ids})
       end
 
-      # Clear pending subscriptions
       {:noreply, %{state | pending_subscriptions: %{}}}
     end
   end
@@ -442,81 +522,104 @@ defmodule Hyperliquid.WebSocket.Connection do
     {:noreply, state}
   end
 
-  defp handle_ws_message(%{"channel" => _channel, "data" => _data} = message, state) do
-    # Route message to manager
-    if state.manager && Process.alive?(state.manager) do
-      send(state.manager, {:ws_message, self(), message})
-    end
-
+  defp handle_ws_message(%{"channel" => _channel} = message, state) do
+    dispatch(message)
     {:noreply, state}
   end
 
   defp handle_ws_message(message, state) do
-    # Unknown message format, still route to manager
-    if state.manager && Process.alive?(state.manager) do
-      send(state.manager, {:ws_message, self(), message})
-    end
-
+    Logger.debug("Unroutable WebSocket message on #{state.key}: #{inspect(message)}")
     {:noreply, state}
+  end
+
+  # Fan out to the subscribers whose full identity matches this frame. Only
+  # `send/2` happens here — user code runs in the subscriber processes.
+  defp dispatch(%{"channel" => channel} = message) do
+    if registry_alive?() do
+      Registry.dispatch(Hyperliquid.WebSocket.Dispatch, channel, fn entries ->
+        Enum.each(entries, fn {pid, %{key: key}} ->
+          if SubscriptionKey.matches?(key, message) do
+            send(pid, {:hyperliquid_ws_frame, message})
+          end
+        end)
+      end)
+    end
+  end
+
+  defp registry_alive? do
+    Process.whereis(Hyperliquid.WebSocket.Dispatch) != nil
   end
 
   defp handle_disconnect(%State{status: status} = state)
        when status in [:disconnected, :reconnecting] do
-    # Already handling disconnect — avoid duplicate reconnect scheduling
+    # Already handling a disconnect — avoid duplicate reconnect scheduling
     {:noreply, state}
   end
 
   defp handle_disconnect(state) do
-    :telemetry.execute(
-      [:hyperliquid, :ws, :disconnect],
-      %{},
-      %{key: state.key}
-    )
+    :telemetry.execute([:hyperliquid, :ws, :disconnect], %{}, %{key: state.key})
 
-    # Cancel heartbeat
-    if state.heartbeat_ref do
-      Process.cancel_timer(state.heartbeat_ref)
-    end
+    if state.heartbeat_ref, do: Process.cancel_timer(state.heartbeat_ref)
+    if state.connect_timer, do: Process.cancel_timer(state.connect_timer)
+    if state.conn, do: transport_close(state, state.conn)
 
-    # Close connection if still open
-    if state.conn do
-      :gun.close(state.conn)
-    end
-
-    state = %{state | conn: nil, stream_ref: nil, status: :disconnected, heartbeat_ref: nil}
+    state = %{
+      state
+      | conn: nil,
+        stream_ref: nil,
+        status: :disconnected,
+        heartbeat_ref: nil,
+        connect_timer: nil,
+        outbox: []
+    }
 
     schedule_reconnect(state)
   end
 
   defp schedule_reconnect(state) do
-    delay = Enum.at(@reconnect_delays, state.reconnect_attempts, List.last(@reconnect_delays))
+    delay = backoff_delay(state.reconnect_attempts)
 
-    Logger.info("Scheduling reconnect in #{delay}ms (attempt #{state.reconnect_attempts + 1})")
+    Logger.info(
+      "Scheduling reconnect for #{state.key} in #{delay}ms (attempt #{state.reconnect_attempts + 1})"
+    )
 
     Process.send_after(self(), :reconnect, delay)
 
     {:noreply, %{state | reconnect_attempts: state.reconnect_attempts + 1, status: :reconnecting}}
   end
 
+  # Replay every stored subscription, paced through the outbox.
   defp resubscribe_all(state) do
-    Enum.each(state.subscriptions, fn {_id, request} ->
-      send_message(state, %{method: "subscribe", subscription: request})
+    requests =
+      Enum.map(state.subscriptions, fn {_id, request} ->
+        %{method: "subscribe", subscription: request}
+      end)
+
+    %{state | pending_subscriptions: state.subscriptions, outbox: requests}
+    |> flush_outbox()
+  end
+
+  # Compare on string keys only. The response is server-controlled, so
+  # `String.to_atom/1` here would let a novel key permanently consume an entry
+  # in the (never garbage-collected) atom table.
+  defp matches_response?(request, response) when is_map(response) do
+    request = stringify_keys(request)
+
+    if request["type"] != response["type"] do
+      false
+    else
+      Enum.all?(response, fn {key, value} -> request[key] == value end)
+    end
+  end
+
+  defp matches_response?(_request, _response), do: false
+
+  defp stringify_keys(map) when is_map(map) do
+    Map.new(map, fn
+      {k, v} when is_atom(k) -> {Atom.to_string(k), v}
+      {k, v} -> {k, v}
     end)
   end
 
-  defp matches_response?(request, response) do
-    # Match if subscription type matches
-    request_type = request["type"] || request[:type]
-    response_type = response["type"] || response[:type]
-
-    if request_type != response_type do
-      false
-    else
-      # For subscriptions with parameters, match key fields
-      # This is a simple match - we compare all fields in the response
-      Enum.all?(response, fn {key, value} ->
-        request[key] == value || request[String.to_atom(key)] == value
-      end)
-    end
-  end
+  defp stringify_keys(other), do: other
 end

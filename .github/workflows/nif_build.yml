@@ -22,6 +22,8 @@ jobs:
           - { target: x86_64-apple-darwin, os: macos-14 }
           - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04, use-cross: true }
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-22.04, use-cross: true }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-22.04, use-cross: true }
           - { target: x86_64-pc-windows-gnu, os: windows-2022 }
           - { target: x86_64-pc-windows-msvc, os: windows-2022 }
 
@@ -53,3 +55,34 @@ jobs:
         with:
           files: |
             *signer_nif-*.tar.gz
+
+  # Aggregate gate. `fail-fast: false` above means a partial matrix still
+  # produces a release that *looks* complete, so refuse to call the build good
+  # unless every job succeeded and the committed checksum file matches the tag.
+  verify_release:
+    name: Verify release artifacts
+    needs: build_release
+    if: always()
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Fail if any NIF build failed
+        if: needs.build_release.result != 'success'
+        run: |
+          echo "::error::One or more NIF matrix jobs did not succeed (${{ needs.build_release.result }})."
+          echo "The GitHub release is incomplete; do not publish to Hex."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17.3"
+          otp-version: "27.1"
+
+      # Asserts the committed checksum file covers the full matrix and is for
+      # the version in mix.exs. Regenerate it with
+      # `mix rustler_precompiled.download Hyperliquid.Signer --all` and commit
+      # before publishing.
+      - name: Verify NIF checksum file
+        run: elixir scripts/verify_nif_checksums.exs

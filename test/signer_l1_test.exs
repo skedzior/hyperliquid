@@ -6,20 +6,39 @@ defmodule Hyperliquid.SignerL1Test do
 
   @priv_key "0x822e9959e022b78423eb653a62ea0020cd283e71a2a8133a6ff2aeffaf373cff"
 
-  @action %{
-    type: "order",
-    orders: [
-      %{
-        a: 0,
-        b: true,
-        p: "30000",
-        s: "0.1",
-        r: false,
-        t: %{limit: %{tif: "Gtc"}}
-      }
-    ],
-    grouping: "na"
-  }
+  # Every expected value in this file is cross-SDK, not a snapshot of this
+  # library's output:
+  #
+  #   * the four action hashes and the two no-vault/no-expires signatures come
+  #     from `@nktkas/hyperliquid` `tests/signing/mod.test.ts` (`L1_ACTION`);
+  #   * the six vaultAddress / expiresAfter signature variants were verified
+  #     against `hyperliquid-python-sdk`'s `sign_l1_action/6` for the same
+  #     action, nonce and key (see `scripts/gen_signing_vectors.py`).
+  #
+  # The broad per-action-type vector suite lives in
+  # `test/signing_vectors_test.exs`.
+  #
+  # The msgpack hash is order-sensitive, so the fixture must reproduce the
+  # nktkas key order exactly. A plain Elixir map is NOT usable
+  # here: small-map key order follows atom term order, not literal order, so
+  # `Jason.encode!/1` emits the keys in an arbitrary order and the hash
+  # diverges from the vector.
+  @action Jason.OrderedObject.new([
+            {"type", "order"},
+            {"orders",
+             [
+               Jason.OrderedObject.new([
+                 {"a", 0},
+                 {"b", true},
+                 {"p", "30000"},
+                 {"s", "0.1"},
+                 {"r", false},
+                 {"t",
+                  Jason.OrderedObject.new([{"limit", Jason.OrderedObject.new([{"tif", "Gtc"}])}])}
+               ])
+             ]},
+            {"grouping", "na"}
+          ])
 
   @nonce 1_234_567_890
   @vault "0x1234567890123456789012345678901234567890"

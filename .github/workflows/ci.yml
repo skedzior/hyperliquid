@@ -1,0 +1,191 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "master"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  MIX_ENV: test
+  # Build the signer NIF from source instead of downloading a release asset:
+  # CI must not depend on a published GitHub release existing for the current
+  # @version (see the checksum job below), and building here is what catches
+  # Rust breakage on PRs.
+  RUSTLER_PRECOMPILED_FORCE_BUILD_ALL: "true"
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Offline suite: no Postgres, no network. This is the gate for every PR.
+  # ---------------------------------------------------------------------
+  test:
+    name: Test (Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }})
+    runs-on: ubuntu-22.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - elixir: "1.16.3"
+            otp: "26.2"
+            lint: false
+          - elixir: "1.17.3"
+            otp: "27.1"
+            lint: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ matrix.otp }}-${{ matrix.elixir }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-${{ matrix.otp }}-${{ matrix.elixir }}-
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/signer/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('native/signer/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - run: mix deps.get
+
+      - name: Check formatting
+        if: matrix.lint
+        run: mix format --check-formatted
+
+      - name: Check unused deps
+        if: matrix.lint
+        run: mix deps.unlock --check-unused
+
+      - name: Compile (warnings are errors)
+        run: mix compile --force --warnings-as-errors
+
+      - name: Rust format
+        if: matrix.lint
+        working-directory: native/signer
+        run: cargo fmt --all -- --check
+
+      - name: Rust clippy
+        if: matrix.lint
+        working-directory: native/signer
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Rust tests
+        working-directory: native/signer
+        run: cargo test
+
+      # test_helper.exs excludes :requires_database and :network by default,
+      # unconditionally. This must pass with no services and no egress.
+      - name: Test (offline)
+        run: mix test --exclude requires_database
+
+  # ---------------------------------------------------------------------
+  # Database suite: the :requires_database tests, against a real Postgres.
+  # ---------------------------------------------------------------------
+  test_db:
+    name: Test (Postgres)
+    runs-on: ubuntu-22.04
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Flips config/test.exs enable_db on, makes test_helper.exs include
+      # :requires_database, and makes the mix.exs `test:` alias run
+      # ecto.create/ecto.migrate.
+      HYPERLIQUID_TEST_DB: "1"
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17.3"
+          otp-version: "27.1"
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-db-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-db-
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/signer/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('native/signer/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - run: mix deps.get
+      - run: mix compile --warnings-as-errors
+
+      - name: Create and migrate database
+        run: mix ecto.create --quiet && mix ecto.migrate --quiet
+
+      - name: Test (database)
+        run: mix test --only requires_database
+
+  # ---------------------------------------------------------------------
+  # Release hygiene: the precompiled-NIF checksum file must describe the
+  # version in mix.exs, and must cover the full nif_build.yml matrix.
+  # ---------------------------------------------------------------------
+  checksum:
+    name: NIF checksum gate
+    runs-on: ubuntu-22.04
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17.3"
+          otp-version: "27.1"
+
+      - name: Verify checksum-Elixir.Hyperliquid.Signer.exs
+        run: elixir scripts/verify_nif_checksums.exs

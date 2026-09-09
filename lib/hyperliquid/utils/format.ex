@@ -36,7 +36,7 @@ defmodule Hyperliquid.Utils.Format do
   """
   def format_price(price, sz_decimals, opts \\ []) do
     is_perp = Keyword.get(opts, :perp, true)
-    price_str = to_string(price) |> String.trim()
+    price_str = Hyperliquid.Utils.to_plain_string(price) |> String.trim()
 
     # Integer prices are always allowed
     if Regex.match?(~r/^-?\d+$/, price_str) do
@@ -72,7 +72,7 @@ defmodule Hyperliquid.Utils.Format do
       "0.001"
   """
   def format_size(size, sz_decimals) do
-    size_str = to_string(size) |> String.trim()
+    size_str = Hyperliquid.Utils.to_plain_string(size) |> String.trim()
     to_fixed_truncate(size_str, sz_decimals)
   end
 

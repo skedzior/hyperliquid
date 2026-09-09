@@ -2,6 +2,21 @@ defmodule Hyperliquid.Api.Subscription.UserHistoricalOrders do
   @moduledoc """
   WebSocket subscription for historical order updates.
 
+  ## `status` values
+
+  See `Hyperliquid.Api.Info.HistoricalOrders.valid_statuses/0` for the full
+  `OrderProcessingStatus` list. Three values were added upstream in v0.33.3:
+  `"outcomeSettledCanceled"`, `"internalCancel"` and `"tooManyOpenOrdersRejected"`.
+  The field is an unconstrained string, so no cast breaks; audit any downstream
+  pattern match.
+
+  ## `order_type` values
+
+  `"Market"`, `"Limit"`, `"Stop Market"`, `"Stop Limit"`, `"Take Profit Market"`,
+  `"Take Profit Limit"`, and - added upstream in v0.33.3 - `"Twap Slice"`,
+  `"Vault Close"`, `"Spot Dust Conversion"`. The field is an unconstrained string,
+  so no cast breaks; audit any downstream pattern match.
+
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions
   """
 

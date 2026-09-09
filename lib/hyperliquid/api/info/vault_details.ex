@@ -2,7 +2,8 @@ defmodule Hyperliquid.Api.Info.VaultDetails do
   @moduledoc """
   Detailed vault information.
 
-  Returns comprehensive details about a specific vault.
+  Returns comprehensive details about a specific vault, or `nil` when the vault
+  address does not exist (`request/1` answers `{:ok, nil}` in that case).
 
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-details-for-a-vault
   """
@@ -62,10 +63,32 @@ defmodule Hyperliquid.Api.Info.VaultDetails do
   # ===================== Preprocessing =====================
 
   @doc false
-  # API returns null for non-existent vaults (causes HTTP 500)
-  def preprocess(nil), do: %{}
+  # The API returns `null` for a non-existent vault (nktkas v0.33.3 widened
+  # `VaultDetailsResponse` to `{...} | null`). Pass the nil straight through so
+  # `parse_response/1` can answer `{:ok, nil}` instead of failing the changeset.
+  def preprocess(nil), do: nil
 
   def preprocess(data) when is_map(data), do: data
+  def preprocess(data), do: data
+
+  # ===================== Response Parsing =====================
+
+  @doc """
+  Parse and validate the API response.
+
+  Returns `{:ok, nil}` when the vault does not exist (the API answers `null`).
+  """
+  @spec parse_response(map() | nil) :: {:ok, t() | nil} | {:error, term()}
+  def parse_response(nil), do: {:ok, nil}
+
+  def parse_response(data) when is_map(data) and map_size(data) == 0, do: {:ok, nil}
+
+  def parse_response(data) when is_map(data) do
+    changeset(%__MODULE__{}, data)
+    |> apply_action(:validate)
+  end
+
+  def parse_response(_), do: {:error, :invalid_response_format}
 
   # ===================== Custom Request Methods =====================
 

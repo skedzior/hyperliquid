@@ -22,7 +22,7 @@ defmodule Hyperliquid.Api.Exchange.BorrowLend do
       {:ok, result} = BorrowLend.request("repay", 0, nil)
   """
 
-  alias Hyperliquid.{Config, Signer}
+  alias Hyperliquid.Config
   alias Hyperliquid.Api.Exchange.KeyUtils
   alias Hyperliquid.Transport.Http
 
@@ -67,23 +67,14 @@ defmodule Hyperliquid.Api.Exchange.BorrowLend do
   end
 
   defp sign_action(private_key, action_json, nonce, vault_address, expires_after) do
-    is_mainnet = Config.mainnet?()
-
-    case Signer.sign_exchange_action_ex(
-           private_key,
-           action_json,
-           nonce,
-           is_mainnet,
-           vault_address,
-           expires_after
-         ) do
-      %{"r" => r, "s" => s, "v" => v} ->
-        {:ok, %{r: r, s: s, v: v}}
-
-      error ->
-        {:error, {:signing_error, error}}
-    end
+    Hyperliquid.Api.Exchange.Action.sign_json(
+      private_key,
+      action_json,
+      nonce,
+      vault_address,
+      expires_after
+    )
   end
 
-  defp generate_nonce, do: System.system_time(:millisecond)
+  defp generate_nonce, do: Hyperliquid.Utils.generate_nonce()
 end

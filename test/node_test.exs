@@ -89,9 +89,19 @@ defmodule Hyperliquid.NodeTest do
         payload = Jason.decode!(body)
         assert payload["type"] == "allBorrowLendReserveStates"
 
-        resp = [[0, %{"borrowYearlyRate" => "0.05", "supplyYearlyRate" => "0.01",
-                       "balance" => "1000.0", "utilization" => "0.5",
-                       "oraclePx" => "1.0", "ltv" => "0.9"}]]
+        resp = [
+          [
+            0,
+            %{
+              "borrowYearlyRate" => "0.05",
+              "supplyYearlyRate" => "0.01",
+              "balance" => "1000.0",
+              "utilization" => "0.5",
+              "oraclePx" => "1.0",
+              "ltv" => "0.9"
+            }
+          ]
+        ]
 
         conn
         |> Plug.Conn.put_resp_header("content-type", "application/json")
@@ -370,7 +380,9 @@ defmodule Hyperliquid.NodeTest do
       end)
 
       assert {:ok, _} =
-               Node.file_snapshot(%{type: "referrerStates"}, "/tmp/out.json", include_height: true)
+               Node.file_snapshot(%{type: "referrerStates"}, "/tmp/out.json",
+                 include_height: true
+               )
     end
   end
 

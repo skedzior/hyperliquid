@@ -20,8 +20,27 @@ defmodule Hyperliquid.Api.Registry do
       Hyperliquid.Api.Registry.total_rate_limit_cost(["allMids", "l2Book"])
   """
 
-  # Discover all endpoint modules by scanning the application
-  # This automatically finds all modules that use the Endpoint DSL
+  # Every endpoint module in the library, grouped by context.
+  #
+  # This list is exhaustive and is asserted against the filesystem by
+  # `test/api/registry_coverage_test.exs` — every module under
+  # `lib/hyperliquid/api/{info,exchange,subscription,explorer,stats}/` must
+  # appear here (with the single documented exception of
+  # `Hyperliquid.Api.Exchange.KeyUtils`, a helper rather than an endpoint).
+  #
+  # Note that not every registered module carries metadata:
+  #
+  #   * `info`/`explorer`/`stats` modules use the `Endpoint` DSL and export
+  #     `__endpoint_info__/0`
+  #   * `subscription` modules use the `SubscriptionEndpoint` DSL and export
+  #     `__subscription_info__/0`
+  #   * most `exchange` modules are hand-written action builders with neither;
+  #     they are registered so `resolve_endpoint/2` and
+  #     `list_context_endpoints/1` see them, but they do not appear in
+  #     `list_endpoints/0`.
+  #
+  # `Hyperliquid.Api.MultiSig` is deliberately absent: it wraps other actions
+  # rather than being an endpoint of its own.
   @endpoints_by_context %{
     info: [
       Hyperliquid.Api.Info.ActiveAssetData,
@@ -57,6 +76,7 @@ defmodule Hyperliquid.Api.Registry do
       Hyperliquid.Api.Info.MetaAndAssetCtxs,
       Hyperliquid.Api.Info.OpenOrders,
       Hyperliquid.Api.Info.OrderStatus,
+      Hyperliquid.Api.Info.OutcomeDeployerLimits,
       Hyperliquid.Api.Info.OutcomeMeta,
       Hyperliquid.Api.Info.OutcomeTemplates,
       Hyperliquid.Api.Info.PerpAnnotation,
@@ -68,8 +88,8 @@ defmodule Hyperliquid.Api.Registry do
       Hyperliquid.Api.Info.PerpDexs,
       Hyperliquid.Api.Info.PerpsAtOpenInterestCap,
       Hyperliquid.Api.Info.Portfolio,
-      Hyperliquid.Api.Info.PredictedFundings,
       Hyperliquid.Api.Info.PreTransferCheck,
+      Hyperliquid.Api.Info.PredictedFundings,
       Hyperliquid.Api.Info.RecentTrades,
       Hyperliquid.Api.Info.Referral,
       Hyperliquid.Api.Info.SettledOutcome,
@@ -104,8 +124,99 @@ defmodule Hyperliquid.Api.Registry do
       Hyperliquid.Api.Info.WebData2
     ],
     exchange: [
+      Hyperliquid.Api.Exchange.ActivateOutcomeDeployer,
+      Hyperliquid.Api.Exchange.AgentEnableDexAbstraction,
+      Hyperliquid.Api.Exchange.AgentSendAsset,
+      Hyperliquid.Api.Exchange.AgentSetAbstraction,
+      Hyperliquid.Api.Exchange.ApproveAgent,
+      Hyperliquid.Api.Exchange.ApproveBuilderFee,
+      Hyperliquid.Api.Exchange.AuthorizeAqav2Role,
+      Hyperliquid.Api.Exchange.BatchModify,
+      Hyperliquid.Api.Exchange.BorrowLend,
+      Hyperliquid.Api.Exchange.CDeposit,
+      Hyperliquid.Api.Exchange.CSignerAction,
+      Hyperliquid.Api.Exchange.CValidatorAction,
+      Hyperliquid.Api.Exchange.CWithdraw,
+      Hyperliquid.Api.Exchange.Cancel,
+      Hyperliquid.Api.Exchange.CancelByCloid,
+      Hyperliquid.Api.Exchange.ClaimRewards,
+      Hyperliquid.Api.Exchange.ConvertToMultiSigUser,
+      Hyperliquid.Api.Exchange.CreateSubAccount,
+      Hyperliquid.Api.Exchange.CreateVault,
+      Hyperliquid.Api.Exchange.EvmUserModify,
+      Hyperliquid.Api.Exchange.FinalizeEvmContract,
+      Hyperliquid.Api.Exchange.GossipPriorityBid,
+      Hyperliquid.Api.Exchange.Hip3LiquidatorTransfer,
+      Hyperliquid.Api.Exchange.LinkStakingUser,
+      Hyperliquid.Api.Exchange.Modify,
       Hyperliquid.Api.Exchange.Noop,
-      Hyperliquid.Api.Exchange.SetDisplayName
+      Hyperliquid.Api.Exchange.Order,
+      Hyperliquid.Api.Exchange.OutcomeDeploy,
+      Hyperliquid.Api.Exchange.PerpDeploy,
+      Hyperliquid.Api.Exchange.RegisterReferrer,
+      Hyperliquid.Api.Exchange.ReserveRequestWeight,
+      Hyperliquid.Api.Exchange.ScheduleCancel,
+      Hyperliquid.Api.Exchange.SendAsset,
+      Hyperliquid.Api.Exchange.SendToEvmWithData,
+      Hyperliquid.Api.Exchange.SetDisplayName,
+      Hyperliquid.Api.Exchange.SetReferrer,
+      Hyperliquid.Api.Exchange.SpotDeploy,
+      Hyperliquid.Api.Exchange.SpotSend,
+      Hyperliquid.Api.Exchange.SpotUser,
+      Hyperliquid.Api.Exchange.StakingLinkDisableTradingUser,
+      Hyperliquid.Api.Exchange.SubAccountModify,
+      Hyperliquid.Api.Exchange.SubAccountSpotTransfer,
+      Hyperliquid.Api.Exchange.SubAccountTransfer,
+      Hyperliquid.Api.Exchange.TokenDelegate,
+      Hyperliquid.Api.Exchange.TopUpIsolatedOnlyMargin,
+      Hyperliquid.Api.Exchange.TwapCancel,
+      Hyperliquid.Api.Exchange.TwapOrder,
+      Hyperliquid.Api.Exchange.UpdateIsolatedMargin,
+      Hyperliquid.Api.Exchange.UpdateLeverage,
+      Hyperliquid.Api.Exchange.UsdClassTransfer,
+      Hyperliquid.Api.Exchange.UsdSend,
+      Hyperliquid.Api.Exchange.UserDexAbstraction,
+      Hyperliquid.Api.Exchange.UserOutcome,
+      Hyperliquid.Api.Exchange.UserPortfolioMargin,
+      Hyperliquid.Api.Exchange.UserSetAbstraction,
+      Hyperliquid.Api.Exchange.ValidatorL1Stream,
+      Hyperliquid.Api.Exchange.VaultDistribute,
+      Hyperliquid.Api.Exchange.VaultModify,
+      Hyperliquid.Api.Exchange.VaultTransfer,
+      Hyperliquid.Api.Exchange.Withdraw3
+    ],
+    subscription: [
+      Hyperliquid.Api.Subscription.ActiveAssetCtx,
+      Hyperliquid.Api.Subscription.ActiveAssetData,
+      Hyperliquid.Api.Subscription.ActiveSpotAssetCtx,
+      Hyperliquid.Api.Subscription.AllDexsAssetCtxs,
+      Hyperliquid.Api.Subscription.AllDexsClearinghouseState,
+      Hyperliquid.Api.Subscription.AllMids,
+      Hyperliquid.Api.Subscription.AssetCtxs,
+      Hyperliquid.Api.Subscription.Bbo,
+      Hyperliquid.Api.Subscription.Candle,
+      Hyperliquid.Api.Subscription.ClearinghouseState,
+      Hyperliquid.Api.Subscription.ExplorerBlock,
+      Hyperliquid.Api.Subscription.ExplorerTxs,
+      Hyperliquid.Api.Subscription.FastAssetCtxs,
+      Hyperliquid.Api.Subscription.L2Book,
+      Hyperliquid.Api.Subscription.Notification,
+      Hyperliquid.Api.Subscription.OpenOrders,
+      Hyperliquid.Api.Subscription.OrderUpdates,
+      Hyperliquid.Api.Subscription.OutcomeMetaUpdates,
+      Hyperliquid.Api.Subscription.SpotAssetCtxs,
+      Hyperliquid.Api.Subscription.SpotState,
+      Hyperliquid.Api.Subscription.Trades,
+      Hyperliquid.Api.Subscription.TwapStates,
+      Hyperliquid.Api.Subscription.UserEvents,
+      Hyperliquid.Api.Subscription.UserFills,
+      Hyperliquid.Api.Subscription.UserFundings,
+      Hyperliquid.Api.Subscription.UserHistoricalOrders,
+      Hyperliquid.Api.Subscription.UserNonFundingLedgerUpdates,
+      Hyperliquid.Api.Subscription.UserTwapHistory,
+      Hyperliquid.Api.Subscription.UserTwapSliceFills,
+      Hyperliquid.Api.Subscription.WebData2,
+      Hyperliquid.Api.Subscription.WebData3
     ],
     explorer: [
       Hyperliquid.Api.Explorer.BlockDetails,
@@ -144,8 +255,39 @@ defmodule Hyperliquid.Api.Registry do
       Code.ensure_loaded!(mod)
       mod
     end)
-    |> Enum.filter(&function_exported?(&1, :__endpoint_info__, 0))
-    |> Enum.map(& &1.__endpoint_info__())
+    |> Enum.flat_map(fn mod ->
+      cond do
+        function_exported?(mod, :__endpoint_info__, 0) ->
+          [mod.__endpoint_info__()]
+
+        # Subscription modules use the `SubscriptionEndpoint` DSL, which exports
+        # `__subscription_info__/0` instead of `__endpoint_info__/0`. Normalise
+        # it into the same shape so `list_by_type(:subscription)` works.
+        function_exported?(mod, :__subscription_info__, 0) ->
+          [subscription_info_to_endpoint_info(mod.__subscription_info__())]
+
+        # Exchange action modules that have not been migrated to the
+        # `ExchangeEndpoint` DSL expose no metadata at all — they are still
+        # registered (so `resolve_endpoint/2` finds them) but cannot be listed.
+        true ->
+          []
+      end
+    end)
+  end
+
+  # Normalise `__subscription_info__/0` into the `__endpoint_info__/0` shape.
+  defp subscription_info_to_endpoint_info(info) do
+    %{
+      endpoint: info.request_type,
+      type: :subscription,
+      rate_limit_cost: 0,
+      params: info.params,
+      optional_params: info.optional_params,
+      doc: info.doc,
+      returns: "",
+      module: info.module,
+      connection_type: info.connection_type
+    }
   end
 
   @doc """
@@ -172,13 +314,18 @@ defmodule Hyperliquid.Api.Registry do
 
   ## Parameters
 
-  - `type` - `:info`, `:exchange`, or `:subscription`
+  - `type` - `:info`, `:exchange`, `:subscription`, `:explorer` or `:stats`
 
   ## Returns
 
   List of endpoint info maps of the specified type.
+
+  Note that `:exchange` only returns the modules that use the
+  `Hyperliquid.Api.ExchangeEndpoint` DSL; the remaining hand-written action
+  modules carry no metadata. Use `list_context_endpoints(:exchange)` for the
+  full module list.
   """
-  def list_by_type(type) when type in [:info, :exchange, :subscription] do
+  def list_by_type(type) when type in [:info, :exchange, :subscription, :explorer, :stats] do
     list_endpoints()
     |> Enum.filter(&(&1.type == type))
   end
@@ -327,6 +474,7 @@ defmodule Hyperliquid.Api.Registry do
       case context do
         :info -> Hyperliquid.Api.Info
         :exchange -> Hyperliquid.Api.Exchange
+        :subscription -> Hyperliquid.Api.Subscription
         :explorer -> Hyperliquid.Api.Explorer
         :stats -> Hyperliquid.Api.Stats
         _ -> nil
@@ -351,7 +499,10 @@ defmodule Hyperliquid.Api.Registry do
   @doc """
   Get endpoint module by snake_case name without context.
 
-  Searches all contexts for the endpoint.
+  Searches all contexts for the endpoint. Several names exist in more than one
+  context (`all_mids`, `l2_book`, `user_fills`, `user_dex_abstraction`, ...),
+  in which case `{:error, {:ambiguous, modules}}` is returned — use
+  `resolve_endpoint/2` with an explicit context for those.
 
   ## Parameters
 
@@ -388,7 +539,7 @@ defmodule Hyperliquid.Api.Registry do
 
   ## Parameters
 
-  - `context` - Atom: `:info`, `:exchange`, `:explorer`, or `:stats`
+  - `context` - Atom: `:info`, `:exchange`, `:subscription`, `:explorer`, or `:stats`
 
   ## Returns
 

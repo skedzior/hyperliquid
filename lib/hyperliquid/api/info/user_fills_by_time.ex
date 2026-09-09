@@ -47,7 +47,27 @@ defmodule Hyperliquid.Api.Info.UserFillsByTime do
       field(:oid, :integer)
       field(:crossed, :boolean)
       field(:fee, :string)
+      # Optional fee charged by the UI builder (negative = rebate)
+      field(:builder_fee, :string)
       field(:tid, :integer)
+      # Token the fee is denominated in (e.g. USDC)
+      field(:fee_token, :string)
+      # Fee trial escrow amount (optional; added upstream in v0.33.3)
+      field(:fee_trial_escrow, :string)
+      # ID of the parent TWAP, or nil for a non-TWAP fill
+      field(:twap_id, :integer)
+      # Client order id, when the order carried one
+      field(:cloid, :string)
+
+      # Present only on liquidation fills. `liquidated_user` became OPTIONAL
+      # upstream in v0.33.3.
+      embeds_one :liquidation, Liquidation, primary_key: false do
+        @moduledoc "Liquidation details for a fill."
+
+        field(:liquidated_user, :string)
+        field(:mark_px, :string)
+        field(:method, :string)
+      end
     end
   end
 
@@ -127,26 +147,51 @@ defmodule Hyperliquid.Api.Info.UserFillsByTime do
       :oid,
       :crossed,
       :fee,
-      :tid
+      :builder_fee,
+      :tid,
+      :fee_token,
+      :fee_trial_escrow,
+      :twap_id,
+      :cloid
     ])
+    |> cast_embed(:liquidation, with: &liquidation_changeset/2)
     |> validate_required([:coin, :px, :sz, :side, :time])
+  end
+
+  defp liquidation_changeset(liquidation, attrs) do
+    liquidation
+    |> cast(attrs, [:liquidated_user, :mark_px, :method])
+    |> validate_required([:mark_px, :method])
   end
 
   defp normalize_attrs(attrs) do
     %{
-      coin: attrs["coin"] || attrs[:coin],
-      px: attrs["px"] || attrs[:px],
-      sz: attrs["sz"] || attrs[:sz],
-      side: attrs["side"] || attrs[:side],
-      time: attrs["time"] || attrs[:time],
-      start_position: attrs["startPosition"] || attrs[:start_position],
-      dir: attrs["dir"] || attrs[:dir],
-      closed_pnl: attrs["closedPnl"] || attrs[:closed_pnl],
-      hash: attrs["hash"] || attrs[:hash],
-      oid: attrs["oid"] || attrs[:oid],
-      crossed: attrs["crossed"] || attrs[:crossed],
-      fee: attrs["fee"] || attrs[:fee],
-      tid: attrs["tid"] || attrs[:tid]
+      coin: fetch_attr(attrs, "coin", "coin"),
+      px: fetch_attr(attrs, "px", "px"),
+      sz: fetch_attr(attrs, "sz", "sz"),
+      side: fetch_attr(attrs, "side", "side"),
+      time: fetch_attr(attrs, "time", "time"),
+      start_position: fetch_attr(attrs, "startPosition", "start_position"),
+      dir: fetch_attr(attrs, "dir", "dir"),
+      closed_pnl: fetch_attr(attrs, "closedPnl", "closed_pnl"),
+      hash: fetch_attr(attrs, "hash", "hash"),
+      oid: fetch_attr(attrs, "oid", "oid"),
+      crossed: fetch_attr(attrs, "crossed", "crossed"),
+      fee: fetch_attr(attrs, "fee", "fee"),
+      builder_fee: fetch_attr(attrs, "builderFee", "builder_fee"),
+      tid: fetch_attr(attrs, "tid", "tid"),
+      fee_token: fetch_attr(attrs, "feeToken", "fee_token"),
+      fee_trial_escrow: fetch_attr(attrs, "feeTrialEscrow", "fee_trial_escrow"),
+      twap_id: fetch_attr(attrs, "twapId", "twap_id"),
+      cloid: fetch_attr(attrs, "cloid", "cloid"),
+      liquidation: fetch_attr(attrs, "liquidation", "liquidation")
     }
+  end
+
+  # Fills reach this module either from the HTTP transport (keys already
+  # snake_cased) or from a caller passing raw camelCase / atom keys, so try all
+  # three spellings.
+  defp fetch_attr(attrs, camel, snake) do
+    Map.get(attrs, camel) || Map.get(attrs, snake) || Map.get(attrs, String.to_atom(snake))
   end
 end

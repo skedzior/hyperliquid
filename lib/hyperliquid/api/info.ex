@@ -30,6 +30,12 @@ defmodule Hyperliquid.Api.Info do
   - `fetch_endpoint_name(...)` - Request and persist to storage backends
 
   See `Hyperliquid.Api.Registry.list_by_type(:info)` for all available endpoints.
+
+  ## Return-shape caveats
+
+  `settled_outcome/1` and `vault_details/1` answer `{:ok, nil}` when the API
+  returns `null` (an unsettled outcome, or a vault address that does not exist)
+  rather than failing changeset validation.
   """
 
   # Generate delegated functions for all Info endpoints at compile time

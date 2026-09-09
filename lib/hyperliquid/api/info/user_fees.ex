@@ -4,6 +4,23 @@ defmodule Hyperliquid.Api.Info.UserFees do
 
   Returns maker and taker fee rates for a user.
 
+  ## `staking_link` is a discriminated union
+
+  As of `@nktkas/hyperliquid` v0.33.3 the shape depends on `type`, and the two
+  variants carry **different keys**:
+
+      %{"type" => "requested",   "staking_user"  => "0x…"}
+      %{"type" => "tradingUser", "staking_user"  => "0x…"}
+      %{"type" => "stakingUser", "trading_user"  => "0x…"}   # note: trading_user!
+      nil
+
+  It used to always carry `stakingUser`, so any consumer reading
+  `staking_link["staking_user"]` unconditionally breaks on the `"stakingUser"`
+  variant. Use `staking_link_counterparty/1`.
+
+  `next_trial_available_timestamp` widened upstream from `unknown | null` to
+  `number | null` (ms since epoch) - already modelled as `:integer` here.
+
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-fee-rates
   """
 
@@ -69,6 +86,29 @@ defmodule Hyperliquid.Api.Info.UserFees do
   end
 
   # ===================== Helpers =====================
+
+  @doc """
+  Return `{type, counterparty_address}` from the `staking_link` union.
+
+  Handles the key difference between the variants (`staking_user` vs
+  `trading_user`). Returns `nil` when there is no staking link.
+
+      iex> alias Hyperliquid.Api.Info.UserFees
+      iex> UserFees.staking_link_counterparty(%UserFees{staking_link: %{"type" => "stakingUser", "trading_user" => "0xabc"}})
+      {"stakingUser", "0xabc"}
+  """
+  @spec staking_link_counterparty(t()) :: {String.t(), String.t() | nil} | nil
+  def staking_link_counterparty(%__MODULE__{staking_link: link}) when is_map(link) do
+    type = link["type"] || link[:type]
+
+    address =
+      link["staking_user"] || link[:staking_user] || link["stakingUser"] ||
+        link["trading_user"] || link[:trading_user] || link["tradingUser"]
+
+    {type, address}
+  end
+
+  def staking_link_counterparty(_), do: nil
 
   @doc """
   Get cross rate as float.

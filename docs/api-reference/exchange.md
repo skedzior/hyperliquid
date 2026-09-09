@@ -63,6 +63,34 @@ order = Order.limit_order("BTC", true, "43000.0", "0.1")
 | `CreateVault` | `:l1` | Create a new vault |
 | `VaultTransfer` | `:l1` | Vault deposits/withdrawals |
 
+## HIP-3 / HIP-4 Deployer Actions
+
+| Module | Description |
+|--------|-------------|
+| `PerpDeploy` | HIP-3 perp dex deployment and configuration |
+| `SpotDeploy` | HIP-1/2 spot token and pair deployment |
+| `OutcomeDeploy` | HIP-4 outcome market deployment (see the [HIP-4 guide](../guides/hip-4-outcome-markets.md)) |
+| `ActivateOutcomeDeployer` | Activate/deactivate as an outcome deployer |
+| `UserOutcome` | Split / merge / negate outcome tokens |
+
+> **Deployer fee ambiguity.** `PerpDeploy` ships both shapes:
+> `set_deployer_fees/2` (`setDeployerFees`, the shape in the official docs) and
+> `set_fee_scale/3` + `set_growth_modes/2` (`setFeeScale` / `setGrowthModes`,
+> the shape `@nktkas/hyperliquid` still emits). Neither is deprecated - which
+> one the node accepts has not been confirmed against a live testnet.
+
+> **Deploy actions and signing.** `perpDeploy` and `spotDeploy` are not variants
+> of the signer NIF's typed action enum, so they sign through the generic L1
+> connection-id path, which hashes the JSON exactly as given. The pre-existing
+> deploy variants build their actions from plain Elixir maps, whose key order is
+> not pinned, so their on-the-wire hash is not yet verified. See the CHANGELOG's
+> "Known issues" section.
+
+## Multi-Sig
+
+Any action above can be wrapped in a `multiSig` action so that a quorum of
+authorized signers approves it. See [Multi-Sig Actions](../advanced/multi-sig.md).
+
 ## Per-Request Options
 
 ```elixir
@@ -73,4 +101,4 @@ Order.place_limit("BTC", true, "43000.0", "0.1", private_key: agent_key)
 Order.place_limit("BTC", true, "43000.0", "0.1", vault_address: "0x...")
 ```
 
-For the complete list of 38 Exchange endpoints, see the [HexDocs](https://hexdocs.pm/hyperliquid).
+For the complete list of 60 Exchange actions, see the [HexDocs](https://hexdocs.pm/hyperliquid).

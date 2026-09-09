@@ -237,4 +237,128 @@ defmodule Hyperliquid.Api.Exchange.TwapOrderTest do
       assert action_json == expected_json
     end
   end
+
+  describe "details (trigger / stop price)" do
+    # nktkas key order is a, b, s, r, m, t then the optional `details` sibling of `twap`.
+    # `details` must be omitted entirely when unused or the L1 action hash changes.
+    defp capture_raw_action(bypass, fun) do
+      parent = self()
+
+      Bypass.expect(bypass, "POST", "/exchange", fn conn ->
+        {:ok, body, conn} = Plug.Conn.read_body(conn)
+        send(parent, {:body, body})
+
+        Plug.Conn.put_resp_header(conn, "content-type", "application/json")
+        |> Plug.Conn.resp(
+          200,
+          Jason.encode!(%{"status" => "ok", "response" => %{"type" => "default"}})
+        )
+      end)
+
+      assert {:ok, %{"status" => "ok"}} = fun.()
+      assert_receive {:body, body}
+      raw = extract_action(body)
+      raw
+    end
+
+    test "details is omitted when not supplied", %{bypass: bypass} do
+      raw =
+        capture_raw_action(bypass, fn ->
+          TwapOrder.request(0, true, "1.0", private_key: @private_key)
+        end)
+
+      assert raw ==
+               ~s({"type":"twapOrder","twap":{"a":0,"b":true,"s":"1","r":false,"m":5,"t":false}})
+
+      refute String.contains?(raw, "details")
+    end
+
+    test "trigger and stop price are emitted as {t:{p,a},s}", %{bypass: bypass} do
+      raw =
+        capture_raw_action(bypass, fn ->
+          TwapOrder.request(0, true, "1.0",
+            details: %{trigger: %{px: "50000", above: true}, stop_px: "45000"},
+            private_key: @private_key
+          )
+        end)
+
+      assert raw ==
+               ~s({"type":"twapOrder","twap":{"a":0,"b":true,"s":"1","r":false,"m":5,"t":false},) <>
+                 ~s("details":{"t":{"p":"50000","a":true},"s":"45000"}})
+    end
+
+    test "a nil trigger and nil stop price emit nulls", %{bypass: bypass} do
+      raw =
+        capture_raw_action(bypass, fn ->
+          TwapOrder.request(0, true, "1.0",
+            details: %{trigger: nil, stop_px: nil},
+            private_key: @private_key
+          )
+        end)
+
+      assert String.contains?(raw, ~s("details":{"t":null,"s":null}))
+    end
+
+    test "stop-only details", %{bypass: bypass} do
+      raw =
+        capture_raw_action(bypass, fn ->
+          TwapOrder.request(0, false, "2.0",
+            details: %{stop_px: "1.5"},
+            private_key: @private_key
+          )
+        end)
+
+      assert String.contains?(raw, ~s("details":{"t":null,"s":"1.5"}))
+    end
+
+    test "build_action/2 pins the key order" do
+      twap =
+        Jason.OrderedObject.new([
+          {:a, 0},
+          {:b, true},
+          {:s, "1"},
+          {:r, false},
+          {:m, 5},
+          {:t, false}
+        ])
+
+      assert Jason.encode!(TwapOrder.build_action(twap)) ==
+               ~s({"type":"twapOrder","twap":{"a":0,"b":true,"s":"1","r":false,"m":5,"t":false}})
+
+      assert Jason.encode!(
+               TwapOrder.build_action(twap, %{trigger: %{px: "10", above: false}, stop_px: nil})
+             ) ==
+               ~s({"type":"twapOrder","twap":{"a":0,"b":true,"s":"1","r":false,"m":5,"t":false},) <>
+                 ~s("details":{"t":{"p":"10","a":false},"s":null}})
+    end
+  end
+
+  # Extracts the exact `action` JSON text from the request body so key order can be
+  # asserted. The surrounding payload map's key order is not stable, so scan balanced
+  # braces rather than matching on neighbouring keys.
+  defp extract_action(body) do
+    {start, len} = :binary.match(body, "\"action\":")
+    rest = binary_part(body, start + len, byte_size(body) - start - len)
+    take_object(rest)
+  end
+
+  defp take_object(bin) do
+    {len, _, _, _} =
+      bin
+      |> :binary.bin_to_list()
+      |> Enum.reduce_while({0, 0, false, false}, fn ch, {i, depth, in_str, esc} ->
+        cond do
+          esc -> {:cont, {i + 1, depth, in_str, false}}
+          in_str and ch == ?\\ -> {:cont, {i + 1, depth, true, true}}
+          ch == ?" -> {:cont, {i + 1, depth, not in_str, false}}
+          in_str -> {:cont, {i + 1, depth, true, false}}
+          ch == ?{ -> {:cont, {i + 1, depth + 1, false, false}}
+          ch == ?} and depth == 1 -> {:halt, {i + 1, 0, false, false}}
+          ch == ?} -> {:cont, {i + 1, depth - 1, false, false}}
+          true -> {:cont, {i + 1, depth, false, false}}
+        end
+      end)
+
+    binary_part(bin, 0, len)
+  end
 end

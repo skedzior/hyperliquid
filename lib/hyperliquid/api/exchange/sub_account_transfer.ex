@@ -5,7 +5,7 @@ defmodule Hyperliquid.Api.Exchange.SubAccountTransfer do
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
-  alias Hyperliquid.{Config, Signer}
+  alias Hyperliquid.Config
   alias Hyperliquid.Transport.Http
 
   @doc """
@@ -48,21 +48,16 @@ defmodule Hyperliquid.Api.Exchange.SubAccountTransfer do
   end
 
   defp sign_action(private_key, action_json, nonce, vault_address, expires_after) do
-    is_mainnet = Config.mainnet?()
-
-    connection_id =
-      Signer.compute_connection_id_ex(action_json, nonce, vault_address, expires_after)
-
-    case Signer.sign_l1_action(private_key, connection_id, is_mainnet) do
-      %{"r" => r, "s" => s, "v" => v} ->
-        {:ok, %{r: r, s: s, v: v}}
-
-      error ->
-        {:error, {:signing_error, error}}
-    end
+    Hyperliquid.Api.Exchange.Action.sign_json(
+      private_key,
+      action_json,
+      nonce,
+      vault_address,
+      expires_after
+    )
   end
 
   defp generate_nonce do
-    System.system_time(:millisecond)
+    Hyperliquid.Utils.generate_nonce()
   end
 end

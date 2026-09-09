@@ -12,8 +12,9 @@ defmodule Hyperliquid.Api.Exchange.VaultDistribute do
   Distribute profits to vault followers.
 
   ## Parameters
-    - `private_key`: Private key for signing (hex string)
     - `vault_address`: Vault address
+    - `usd`: Amount to distribute in **micro-USD as an unsigned integer**
+      (`float * 1e6`). `0` closes the vault.
     - `opts`: Optional parameters
 
   ## Returns
@@ -22,16 +23,17 @@ defmodule Hyperliquid.Api.Exchange.VaultDistribute do
 
   ## Examples
 
-      {:ok, result} = VaultDistribute.request(private_key, "0x...")
+      {:ok, result} = VaultDistribute.request("0x...", 10 * 1_000_000)
   """
-  def request(vault_address, opts \\ []) do
+  def request(vault_address, usd, opts \\ []) when is_integer(usd) and usd >= 0 do
     private_key = Hyperliquid.Api.Exchange.KeyUtils.resolve_private_key!(opts)
     nonce = generate_nonce()
     expires_after = Config.expires_after()
 
     action = %{
       type: "vaultDistribute",
-      vaultAddress: vault_address
+      vaultAddress: vault_address,
+      usd: usd
     }
 
     with {:ok, action_json} <- Hyperliquid.Api.ActionEncoder.encode(action),

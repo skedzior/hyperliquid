@@ -47,6 +47,9 @@ defmodule Hyperliquid.Api.Info.SubAccounts2 do
   # ===================== Preprocessing =====================
 
   @doc false
+  # The API returns `null` (not `[]`) for a user with no sub-accounts.
+  def preprocess(nil), do: %{accounts: []}
+
   def preprocess(data) when is_list(data) do
     %{accounts: data}
   end

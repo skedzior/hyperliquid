@@ -9,7 +9,7 @@ defmodule Hyperliquid.Api.Exchange.UserSetAbstraction do
   `hyperliquidChain`, `user` (address), `abstraction`, `nonce`, matching
   `@nktkas/hyperliquid` (`UserSetAbstractionTypes`).
 
-  Before v0.2.4 this module omitted the `user` field entirely, so both the
+  Until the 2026-09 API sync this module omitted the `user` field entirely, so both the
   EIP-712 type hash and the encoded struct were wrong and the signature could
   never have been recovered to the sending address.
 

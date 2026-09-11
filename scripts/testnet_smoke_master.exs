@@ -470,7 +470,9 @@ if phase?.("C") do
             eth_asset,
             true,
             eth_far_px,
-            round_sz.(12.0 / (eth_mid * 0.5), eth_sz_dec), tif: "Alo")
+            round_sz.(12.0 / (eth_mid * 0.5), eth_sz_dec),
+            tif: "Alo"
+          )
         ],
         {:priority, 1000},
         opts

@@ -16,7 +16,7 @@ defmodule Hyperliquid.Api.Exchange.SendToEvmWithData do
       data                  bytes
       nonce                 uint64
 
-  matching `@nktkas/hyperliquid` (`SendToEvmWithDataTypes`). Before v0.2.4 this
+  matching `@nktkas/hyperliquid` (`SendToEvmWithDataTypes`). Until the 2026-09 API sync this
   module declared `destinationChainId` as `uint64` and `data` as `string`. Both
   the Solidity types and the resulting encoding differ (`bytes` is hashed, a
   `string` of hex text is not), so those signatures could never have been

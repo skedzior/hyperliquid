@@ -6,8 +6,9 @@ defmodule Hyperliquid.Api.Exchange.ConvertToMultiSigUser do
   msgpack action. It is signed under
   `HyperliquidTransaction:ConvertToMultiSigUser` with the fields
   `hyperliquidChain`, `signers`, `nonce`, matching `@nktkas/hyperliquid` and
-  `hyperliquid-python-sdk` (`CONVERT_TO_MULTI_SIG_USER_SIGN_TYPES`). Before
-  v0.2.4 this module built and hashed an L1 action with the signers *inlined*
+  `hyperliquid-python-sdk` (`CONVERT_TO_MULTI_SIG_USER_SIGN_TYPES`). Until
+  the 2026-09 API sync this module built and hashed an L1 action with the
+  signers *inlined*
   (`{type, authorizedUsers, threshold}`); the wire format is a single `signers`
   **string** holding the JSON, and the signature scheme was wrong too.
 

@@ -5,7 +5,7 @@ defmodule Hyperliquid.Api.Exchange.UserPortfolioMargin do
   `userPortfolioMargin` is a **user-signed** (EIP-712) action, not an L1 msgpack
   action. It is signed under `HyperliquidTransaction:UserPortfolioMargin` with
   the fields `hyperliquidChain`, `user`, `enabled`, `nonce`, matching
-  `@nktkas/hyperliquid`. Before v0.2.4 this module built and hashed an L1 action
+  `@nktkas/hyperliquid`. Until the 2026-09 API sync this module built and hashed an L1 action
   (`{type, on}`) — both the field name and the signing scheme were wrong, so
   those signatures could never have been recovered to the sending address.
 

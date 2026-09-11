@@ -6,7 +6,7 @@ defmodule Hyperliquid.Api.Exchange.UserDexAbstraction do
   action. It is signed under `HyperliquidTransaction:UserDexAbstraction` with the
   fields `hyperliquidChain`, `user`, `enabled`, `nonce`, matching
   `@nktkas/hyperliquid` and `hyperliquid-python-sdk`
-  (`USER_DEX_ABSTRACTION_SIGN_TYPES`). Before v0.2.4 this module built and hashed
+  (`USER_DEX_ABSTRACTION_SIGN_TYPES`). Until the 2026-09 API sync this module built and hashed
   an L1 action (`{type, enabled}`), omitting `user` entirely.
 
   This is the exchange-side action. The info-side query lives at

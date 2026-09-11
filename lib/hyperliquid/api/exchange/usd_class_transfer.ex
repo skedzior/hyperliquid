@@ -5,7 +5,7 @@ defmodule Hyperliquid.Api.Exchange.UsdClassTransfer do
   `usdClassTransfer` is a **user-signed** (EIP-712) action, not an L1 msgpack
   action. It is signed under `HyperliquidTransaction:UsdClassTransfer` with the
   fields `hyperliquidChain`, `amount`, `toPerp`, `nonce`, matching
-  `@nktkas/hyperliquid` and `hyperliquid-python-sdk`. Before v0.2.4 this module
+  `@nktkas/hyperliquid` and `hyperliquid-python-sdk`. Until the 2026-09 API sync this module
   built and hashed an L1 action (`{type, amount, toPerp}`); those signatures
   could never have been recovered to the sending address.
 

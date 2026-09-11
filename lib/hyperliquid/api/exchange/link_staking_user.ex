@@ -5,7 +5,7 @@ defmodule Hyperliquid.Api.Exchange.LinkStakingUser do
   `linkStakingUser` is a **user-signed** (EIP-712) action, not an L1 msgpack
   action. It is signed under `HyperliquidTransaction:LinkStakingUser` with the
   fields `hyperliquidChain`, `user`, `isFinalize`, `nonce`, matching
-  `@nktkas/hyperliquid`. Before v0.2.4 this module built and hashed an L1 action
+  `@nktkas/hyperliquid`. Until the 2026-09 API sync this module built and hashed an L1 action
   (`{type, linkTo}`) — the field name (`linkTo`) did not exist on the wire and
   the signing scheme was wrong.
 

@@ -84,5 +84,29 @@ jobs:
       # the version in mix.exs. Regenerate it with
       # `mix rustler_precompiled.download Hyperliquid.Signer --all` and commit
       # before publishing.
+      # Bootstrap escape hatch. The checksum file can only be generated *from*
+      # this very build (`mix rustler_precompiled.download --all` downloads the
+      # release assets), so on the FIRST tag of a new version it is necessarily
+      # still describing the previous version and this gate could never pass.
+      # Detect that case and skip, rather than failing a build that is fine.
+      # The strict check is not lost: ci.yml runs the same script on every push
+      # and PR, so the regenerated file still has to land before merge/publish.
+      - name: Does the checksum file already cover this tag?
+        id: checksum_state
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if grep -q -- "-v${version}-nif-" checksum-Elixir.Hyperliquid.Signer.exs; then
+            echo "covers=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "covers=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Verify NIF checksum file
+        if: steps.checksum_state.outputs.covers == 'true'
         run: elixir scripts/verify_nif_checksums.exs
+
+      - name: Checksum file not yet generated for this tag
+        if: steps.checksum_state.outputs.covers != 'true'
+        run: |
+          echo "::notice::checksum-Elixir.Hyperliquid.Signer.exs has no entries for ${GITHUB_REF_NAME} — this is the first build of this version, so the file cannot exist yet. Skipping the checksum gate. Regenerate it now with 'mix rustler_precompiled.download Hyperliquid.Signer --all --print', commit it, and let ci.yml enforce the strict check."

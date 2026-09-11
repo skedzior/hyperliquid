@@ -6,7 +6,7 @@ defmodule Hyperliquid.Api.Exchange.TokenDelegate do
   `HyperliquidTransaction:TokenDelegate` with the fields `hyperliquidChain`,
   `validator` (address), `wei`, `isUndelegate`, `nonce`.
 
-  Before v0.2.4 this module built its own typed data with `validator` typed as
+  Until the 2026-09 API sync this module built its own typed data with `validator` typed as
   `string` and `isUndelegate` declared *before* `wei`. Both the type and the
   declaration order feed the EIP-712 type hash and the encoded struct, so those
   signatures could never have been recovered to the sending address.

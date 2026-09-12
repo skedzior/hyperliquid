@@ -46,6 +46,13 @@ jobs:
         with:
           elixir-version: ${{ matrix.elixir }}
           otp-version: ${{ matrix.otp }}
+          # builds.hex.pm now serves a Let's Encrypt "Root YR" chain whose root
+          # carries an extendedKeyUsage; OTP's public_key rejects it with
+          # `key_usage_mismatch`, so `mix local.rebar` dies before any step
+          # runs. Give setup-beam a second mirror to fall back to.
+          hexpm-mirrors: |
+            https://builds.hex.pm
+            https://cdn.jsdelivr.net/hex
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -140,6 +147,13 @@ jobs:
         with:
           elixir-version: "1.17.3"
           otp-version: "27.1"
+          # builds.hex.pm now serves a Let's Encrypt "Root YR" chain whose root
+          # carries an extendedKeyUsage; OTP's public_key rejects it with
+          # `key_usage_mismatch`, so `mix local.rebar` dies before any step
+          # runs. Give setup-beam a second mirror to fall back to.
+          hexpm-mirrors: |
+            https://builds.hex.pm
+            https://cdn.jsdelivr.net/hex
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -186,6 +200,13 @@ jobs:
         with:
           elixir-version: "1.17.3"
           otp-version: "27.1"
+          # builds.hex.pm now serves a Let's Encrypt "Root YR" chain whose root
+          # carries an extendedKeyUsage; OTP's public_key rejects it with
+          # `key_usage_mismatch`, so `mix local.rebar` dies before any step
+          # runs. Give setup-beam a second mirror to fall back to.
+          hexpm-mirrors: |
+            https://builds.hex.pm
+            https://cdn.jsdelivr.net/hex
 
       - name: Verify checksum-Elixir.Hyperliquid.Signer.exs
         run: elixir scripts/verify_nif_checksums.exs

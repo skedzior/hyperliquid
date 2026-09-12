@@ -79,6 +79,13 @@ jobs:
         with:
           elixir-version: "1.17.3"
           otp-version: "27.1"
+          # builds.hex.pm now serves a Let's Encrypt "Root YR" chain whose root
+          # carries an extendedKeyUsage; OTP's public_key rejects it with
+          # `key_usage_mismatch`, so `mix local.rebar` dies before any step
+          # runs. Give setup-beam a second mirror to fall back to.
+          hexpm-mirrors: |
+            https://builds.hex.pm
+            https://cdn.jsdelivr.net/hex
 
       # Asserts the committed checksum file covers the full matrix and is for
       # the version in mix.exs. Regenerate it with

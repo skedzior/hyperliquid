@@ -32,3 +32,4 @@
 * [Telemetry & Observability](advanced/telemetry.md)
 * [Error Handling](advanced/error-handling.md)
 * [Architecture](advanced/architecture.md)
+* [Releasing](releasing.md)

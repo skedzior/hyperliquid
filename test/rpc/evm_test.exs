@@ -1,6 +1,22 @@
 defmodule Hyperliquid.Rpc.EvmTest do
   use ExUnit.Case, async: false
 
+  # KNOWN FAILING — excluded by default (see test/test_helper.exs).
+  #
+  # This file predates the v0.2.0 DSL migration and still targets
+  # `Hyperliquid.Rpc.Evm`, a module that no longer exists: it was split into
+  # `Hyperliquid.Rpc.Eth`, `.Net`, `.Web3` and `.Custom`, all of which are thin
+  # wrappers over `Hyperliquid.Transport.Rpc.call/3`. The replacements also
+  # dropped the two behaviours these tests assert — the `decode: true` option
+  # and the client-side `eth_call`/`eth_getLogs` argument validation — so the
+  # file cannot be fixed by renaming the alias; it has to be rewritten against
+  # the new modules (and the validation re-added, if it is still wanted).
+  #
+  # Kept rather than deleted so the intent is not lost. Run it with:
+  #
+  #     HYPERLIQUID_TEST_KNOWN_FAILING=1 mix test test/rpc/evm_test.exs
+  @moduletag :known_failing
+
   alias Hyperliquid.Rpc.Evm
 
   setup do

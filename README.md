@@ -838,6 +838,24 @@ mix format
 mix docs
 ```
 
+`mix test` excludes three tag groups unconditionally so it runs offline with no
+Postgres: opt back in with `HYPERLIQUID_TEST_DB=1`, `HYPERLIQUID_TEST_NETWORK=1`
+or `HYPERLIQUID_TEST_KNOWN_FAILING=1`.
+
+### Releasing
+
+Two commands — the first only once per machine:
+
+```bash
+scripts/hex-auth-setup.sh     # store a hex.pm API key (0600)
+scripts/release.sh 0.5.0      # bump, tag, build NIFs, verify, publish
+```
+
+`scripts/release.sh` is idempotent: every step detects whether it has already
+run, so re-running the same command is how you resume after a failure. See
+**[docs/releasing.md](docs/releasing.md)** for the full runbook, the
+precompiled-NIF checksum bootstrap, and recovery steps.
+
 ## Documentation
 
 Full documentation is available on [HexDocs](https://hexdocs.pm/hyperliquid).

@@ -28,8 +28,12 @@ defmodule Hyperliquid.Api do
       Hyperliquid.Api.Info.l2_book("BTC")
       Hyperliquid.Api.Info.clearinghouse_state("0xabc...")
 
-      # Exchange endpoints (when migrated to DSL)
-      Hyperliquid.Api.Exchange.order(...)
+      # Exchange endpoints
+      Hyperliquid.Api.Exchange.Order.market_open(...)
+      Hyperliquid.Api.Exchange.top_up_isolated_only_margin(0, 5)
+
+      # Multi-sig wrapping of any exchange action
+      Hyperliquid.Api.MultiSig.request_l1(signers, opts)
 
   ## Direct Endpoint Access
 
@@ -45,17 +49,27 @@ defmodule Hyperliquid.Api do
       # List all endpoints
       Hyperliquid.Api.Registry.list_endpoints()
 
-      # List by type
+      # List by type (:info, :exchange, :subscription, :explorer, :stats)
       Hyperliquid.Api.Registry.list_by_type(:info)
+      Hyperliquid.Api.Registry.list_by_type(:subscription)
 
       # Get endpoint metadata
       Hyperliquid.Api.Registry.get_endpoint_info("allMids")
+
+      # Full module list for a context, including Exchange action modules that
+      # carry no DSL metadata
+      Hyperliquid.Api.Registry.list_context_endpoints(:exchange)
   """
 
   alias Hyperliquid.Api.Registry
 
   @typedoc """
-  Supported API contexts.
+  Supported API contexts for `command/3`.
+
+  Only contexts whose modules expose `request/N` are supported: `:info`,
+  `:explorer`, `:stats`, and the DSL-backed `:exchange` modules. Subscriptions
+  are registered in `Hyperliquid.Api.Registry` but are driven through the
+  WebSocket manager rather than `command/3`.
   """
   @type context :: :info | :exchange | :explorer | :stats
 

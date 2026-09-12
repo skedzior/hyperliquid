@@ -4,6 +4,22 @@ defmodule Hyperliquid.Api.Info.TwapHistory do
 
   Returns historical TWAP (Time-Weighted Average Price) orders.
 
+  ## Trigger / stop price (nktkas `18bbcda`, `bb50731`)
+
+  Each record's `state` now carries:
+
+  - `stop_px` - price at which the TWAP is terminated, or `nil`
+  - `trigger` - `%{"px" => "...", "above" => bool}` activation condition, or `nil`
+    (`above: true` triggers when the mark price rises above `px`)
+
+  ## Status values
+
+  `status.status` gained `"waitingForTrigger"` and `"stopped"` on top of the
+  original `"finished"`, `"activated"`, `"terminated"` and `"error"`. The field is
+  a plain string so nothing breaks, but note that `active/1` matches only
+  `"activated"` - a TWAP parked on a trigger reports `"waitingForTrigger"`. Use
+  `pending?/1` when you mean "not finished yet".
+
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint
   """
 
@@ -37,8 +53,12 @@ defmodule Hyperliquid.Api.Info.TwapHistory do
         field(:randomize, :boolean)
         field(:reduce_only, :boolean)
         field(:side, :string)
+        # Price at which the order is terminated; nil when unset
+        field(:stop_px, :string)
         field(:sz, :string)
         field(:timestamp, :integer)
+        # %{"px" => "...", "above" => bool} activation condition; nil when unset
+        field(:trigger, :map)
         field(:user, :string)
       end
 
@@ -90,8 +110,10 @@ defmodule Hyperliquid.Api.Info.TwapHistory do
       :randomize,
       :reduce_only,
       :side,
+      :stop_px,
       :sz,
       :timestamp,
+      :trigger,
       :user
     ])
     |> validate_required([:coin, :side, :sz, :minutes, :timestamp])
@@ -102,6 +124,18 @@ defmodule Hyperliquid.Api.Info.TwapHistory do
     |> cast(attrs, [:status, :description])
     |> validate_required([:status])
   end
+
+  # ===================== Statuses =====================
+
+  @statuses ~w(finished activated terminated waitingForTrigger stopped error)
+
+  @doc """
+  Known `status.status` values.
+
+  `"waitingForTrigger"` and `"stopped"` were added upstream in v0.33.3.
+  """
+  @spec valid_statuses() :: [String.t()]
+  def valid_statuses, do: @statuses
 
   # ===================== Helpers =====================
 
@@ -114,10 +148,28 @@ defmodule Hyperliquid.Api.Info.TwapHistory do
   end
 
   @doc """
-  Get active records.
+  Get records whose status is exactly `"activated"`.
+
+  Note this excludes TWAPs parked on a trigger - see `waiting_for_trigger/1` and
+  `pending/1`.
   """
   @spec active(t()) :: [map()]
   def active(%__MODULE__{records: records}) do
     Enum.filter(records, &(&1.status && &1.status.status == "activated"))
+  end
+
+  @doc "Records awaiting their trigger price (`\"waitingForTrigger\"`)."
+  @spec waiting_for_trigger(t()) :: [map()]
+  def waiting_for_trigger(%__MODULE__{records: records}) do
+    Enum.filter(records, &(&1.status && &1.status.status == "waitingForTrigger"))
+  end
+
+  @doc """
+  Records that are not in a terminal state - i.e. `"activated"` or
+  `"waitingForTrigger"`.
+  """
+  @spec pending(t()) :: [map()]
+  def pending(%__MODULE__{records: records}) do
+    Enum.filter(records, &(&1.status && &1.status.status in ["activated", "waitingForTrigger"]))
   end
 end

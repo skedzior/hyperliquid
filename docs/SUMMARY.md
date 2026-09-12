@@ -21,12 +21,15 @@
 * [WebSocket Subscriptions](guides/websocket-subscriptions.md)
 * [Caching](guides/caching.md)
 * [Database Integration](guides/database-integration.md)
+* [HIP-4 Outcome Markets](guides/hip-4-outcome-markets.md)
 * [Using Livebook](guides/livebook.md)
 
 ## Advanced
 
 * [Endpoint DSL](advanced/endpoint-dsl.md)
 * [Signing & Authentication](advanced/signing.md)
+* [Multi-Sig Actions](advanced/multi-sig.md)
 * [Telemetry & Observability](advanced/telemetry.md)
 * [Error Handling](advanced/error-handling.md)
 * [Architecture](advanced/architecture.md)
+* [Releasing](releasing.md)

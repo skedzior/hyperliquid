@@ -27,14 +27,18 @@ defmodule Hyperliquid.Transport.Http do
   alias Hyperliquid.Config
   alias Hyperliquid.Error
 
-  @default_timeout 30_000
-  @default_recv_timeout 30_000
   @json_content_type "application/json"
+
+  # Named hackney pool, started by Hyperliquid.Application. Falls back to
+  # hackney's default pool if the application was not started.
+  @pool :hyperliquid_http
 
   @type request_opts :: [
           timeout: non_neg_integer(),
           recv_timeout: non_neg_integer(),
-          raw: boolean()
+          raw: boolean(),
+          max_retries: non_neg_integer(),
+          exchange: boolean()
         ]
 
   @type response :: {:ok, map() | list()} | {:error, Error.t()}
@@ -213,7 +217,7 @@ defmodule Hyperliquid.Transport.Http do
         payload
       end
 
-    post(url, payload, opts)
+    post(url, payload, Keyword.put(opts, :exchange, true))
   end
 
   @doc """
@@ -235,6 +239,11 @@ defmodule Hyperliquid.Transport.Http do
   def user_signed_request(action, signature, nonce, opts \\ []) do
     url = "#{Config.api_base()}/exchange"
 
+    # Canonicalize exactly like an L1 action: pins the declared key order and
+    # lower-cases `0x…` hex values, so the wire body cannot disagree with the
+    # payload `Hyperliquid.Api.Exchange.UserSigned` actually signed.
+    action = Hyperliquid.Api.Exchange.Action.ordered(action)
+
     payload = %{
       action: action,
       nonce: nonce,
@@ -243,7 +252,7 @@ defmodule Hyperliquid.Transport.Http do
       vaultAddress: nil
     }
 
-    post(url, payload, opts)
+    post(url, payload, Keyword.put(opts, :exchange, true))
   end
 
   @doc """
@@ -265,26 +274,7 @@ defmodule Hyperliquid.Transport.Http do
   """
   @spec post(String.t(), map(), request_opts()) :: response()
   def post(url, body, opts \\ []) when is_map(body) do
-    full_url = build_url(url)
-    json_body = Jason.encode!(body)
-    headers = [{"Content-Type", @json_content_type}]
-    raw? = Keyword.get(opts, :raw, false)
-
-    http_opts = [
-      timeout: Keyword.get(opts, :timeout, @default_timeout),
-      recv_timeout: Keyword.get(opts, :recv_timeout, @default_recv_timeout)
-    ]
-
-    case HTTPoison.post(full_url, json_body, headers, http_opts) do
-      {:ok, %HTTPoison.Response{status_code: code, body: resp_body}} when code in 200..299 ->
-        parse_response(resp_body, raw?)
-
-      {:ok, %HTTPoison.Response{status_code: code, body: resp_body}} ->
-        {:error, Error.exception(%{status_code: code, message: resp_body})}
-
-      {:error, %HTTPoison.Error{reason: reason}} ->
-        {:error, Error.exception(%{reason: reason})}
-    end
+    request(:post, url, Jason.encode!(body), opts)
   end
 
   @doc """
@@ -300,25 +290,7 @@ defmodule Hyperliquid.Transport.Http do
   """
   @spec get(String.t(), request_opts()) :: response()
   def get(url, opts \\ []) do
-    full_url = build_url(url)
-
-    http_opts = [
-      timeout: Keyword.get(opts, :timeout, @default_timeout),
-      recv_timeout: Keyword.get(opts, :recv_timeout, @default_recv_timeout)
-    ]
-
-    raw? = Keyword.get(opts, :raw, false)
-
-    case HTTPoison.get(full_url, [], http_opts) do
-      {:ok, %HTTPoison.Response{status_code: code, body: resp_body}} when code in 200..299 ->
-        parse_response(resp_body, raw?)
-
-      {:ok, %HTTPoison.Response{status_code: code, body: resp_body}} ->
-        {:error, Error.exception(%{status_code: code, message: resp_body})}
-
-      {:error, %HTTPoison.Error{reason: reason}} ->
-        {:error, Error.exception(%{reason: reason})}
-    end
+    request(:get, url, "", opts)
   end
 
   # ===================== Convenience Functions =====================
@@ -1083,6 +1055,220 @@ defmodule Hyperliquid.Transport.Http do
   defp unwrap!({:error, %Error{} = error}), do: raise(error)
   defp unwrap!({:error, reason}), do: raise(Error.exception(%{reason: reason}))
 
+  # ===================== Request chokepoint =====================
+
+  # Single chokepoint for every HTTP call made by this module.
+  #
+  # Responsibilities:
+  #   - pool + split connect/recv timeouts (configurable)
+  #   - telemetry span `[:hyperliquid, :http, :request]`
+  #   - 429 handling (Retry-After, bounded exponential backoff with full jitter)
+  #   - exchange business-error classification (never retried)
+  defp request(method, url, body, opts) do
+    full_url = build_url(url)
+    exchange? = Keyword.get(opts, :exchange, false)
+    raw? = Keyword.get(opts, :raw, false)
+
+    # Writes are never retried - a retried /exchange POST can double-fill.
+    max_attempts =
+      if exchange? do
+        1
+      else
+        Keyword.get(opts, :max_retries, Config.http_max_retries()) + 1
+      end
+
+    http_opts = [
+      timeout: Keyword.get(opts, :timeout, Config.http_connect_timeout()),
+      recv_timeout: Keyword.get(opts, :recv_timeout, Config.http_recv_timeout()),
+      hackney: [pool: @pool]
+    ]
+
+    metadata = %{
+      method: method,
+      url: full_url,
+      module: __MODULE__,
+      request_type: if(exchange?, do: :exchange, else: :info)
+    }
+
+    :telemetry.span([:hyperliquid, :http, :request], metadata, fn ->
+      result = attempt(method, full_url, body, http_opts, {raw?, exchange?}, max_attempts, 1)
+
+      meta =
+        case result do
+          {:ok, _} -> Map.put(metadata, :result, :ok)
+          {:error, reason} -> Map.merge(metadata, %{result: :error, reason: reason})
+        end
+
+      {result, meta}
+    end)
+  end
+
+  defp attempt(method, url, body, http_opts, mode, max_attempts, attempt_no) do
+    case perform(method, url, body, http_opts) do
+      {:ok, %HTTPoison.Response{status_code: code, body: resp_body}} when code in 200..299 ->
+        parse_success(resp_body, mode)
+
+      {:ok, %HTTPoison.Response{status_code: 429, body: resp_body, headers: headers}} ->
+        retry_after = retry_after_ms(headers)
+
+        if attempt_no < max_attempts do
+          Process.sleep(backoff_delay(attempt_no, retry_after))
+          attempt(method, url, body, http_opts, mode, max_attempts, attempt_no + 1)
+        else
+          {:error,
+           Error.exception(%{
+             type: :rate_limited,
+             status_code: 429,
+             message: "HTTP 429: #{resp_body}",
+             retry_after: retry_after,
+             response: resp_body
+           })}
+        end
+
+      {:ok, %HTTPoison.Response{status_code: code, body: resp_body}} when code in 500..599 ->
+        if attempt_no < max_attempts do
+          Process.sleep(backoff_delay(attempt_no, nil))
+          attempt(method, url, body, http_opts, mode, max_attempts, attempt_no + 1)
+        else
+          {:error, Error.exception(%{status_code: code, message: resp_body})}
+        end
+
+      {:ok, %HTTPoison.Response{status_code: code, body: resp_body}} ->
+        {:error, Error.exception(%{status_code: code, message: resp_body})}
+
+      {:error, %HTTPoison.Error{reason: reason}} ->
+        if attempt_no < max_attempts and retryable_reason?(reason) do
+          Process.sleep(backoff_delay(attempt_no, nil))
+          attempt(method, url, body, http_opts, mode, max_attempts, attempt_no + 1)
+        else
+          {:error, Error.exception(%{reason: reason})}
+        end
+    end
+  end
+
+  defp perform(:post, url, body, http_opts) do
+    HTTPoison.post(url, body, [{"Content-Type", @json_content_type}], http_opts)
+  end
+
+  defp perform(:get, url, _body, http_opts) do
+    HTTPoison.get(url, [], http_opts)
+  end
+
+  defp retryable_reason?(:timeout), do: true
+  defp retryable_reason?(:connect_timeout), do: true
+  defp retryable_reason?(:checkout_timeout), do: true
+  defp retryable_reason?(:closed), do: true
+  defp retryable_reason?({:closed, _}), do: true
+  defp retryable_reason?(_), do: false
+
+  # Full-jitter exponential backoff, bounded by `http_max_retry_delay`.
+  # An explicit Retry-After wins (still bounded).
+  defp backoff_delay(_attempt_no, retry_after) when is_integer(retry_after) and retry_after > 0 do
+    min(retry_after, Config.http_max_retry_delay())
+  end
+
+  defp backoff_delay(attempt_no, _retry_after) do
+    ceiling =
+      (Config.http_retry_base_delay() * :math.pow(2, attempt_no - 1))
+      |> round()
+      |> min(Config.http_max_retry_delay())
+      |> max(1)
+
+    :rand.uniform(ceiling)
+  end
+
+  # Retry-After is either delta-seconds or an HTTP-date; only the former is
+  # honoured (the latter is rare and needs no extra dependency to ignore).
+  defp retry_after_ms(headers) when is_list(headers) do
+    headers
+    |> Enum.find_value(fn {k, v} ->
+      if String.downcase(to_string(k)) == "retry-after", do: v
+    end)
+    |> case do
+      nil ->
+        nil
+
+      value ->
+        case Integer.parse(String.trim(to_string(value))) do
+          {seconds, _} when seconds >= 0 -> seconds * 1000
+          _ -> nil
+        end
+    end
+  end
+
+  defp retry_after_ms(_), do: nil
+
+  defp parse_success(resp_body, {raw?, exchange?}) do
+    with {:ok, data} <- parse_response(resp_body, raw?) do
+      if exchange?, do: parse_exchange_response(data), else: {:ok, data}
+    end
+  end
+
+  # ===================== Exchange response classification =====================
+
+  @doc """
+  Classify a decoded `/exchange` response body.
+
+  Hyperliquid answers HTTP 200 for business-level failures, so a 2xx alone
+  says nothing about whether the action was accepted. Three failure shapes
+  are recognised (matching `@nktkas/hyperliquid`'s `ApiRequestError`):
+
+    * top-level - `%{"status" => "err", "response" => message}`
+    * bulk      - `%{"status" => "ok", "response" => %{"data" => %{"statuses" => [...]}}}`
+      where any element carries an `"error"` key
+    * single    - `%{"status" => "ok", "response" => %{"data" => %{"status" => %{"error" => msg}}}}`
+
+  Bulk rejections return `{:error, %Error{type: :partial_rejection, statuses: statuses}}`
+  carrying the **full** statuses list, so callers can still see which items
+  were accepted (`resting`/`filled`) alongside the ones that were not.
+  """
+  @spec parse_exchange_response(term()) :: response()
+  def parse_exchange_response(%{"status" => "err", "response" => message} = data) do
+    {:error,
+     Error.exception(%{
+       type: :exchange,
+       message: stringify(message),
+       response: data
+     })}
+  end
+
+  def parse_exchange_response(%{"response" => %{"data" => %{"statuses" => statuses}}} = data)
+      when is_list(statuses) do
+    errors =
+      statuses
+      |> Enum.with_index()
+      |> Enum.flat_map(fn
+        {%{"error" => msg}, idx} -> ["#{idx}: #{stringify(msg)}"]
+        {_ok, _idx} -> []
+      end)
+
+    case errors do
+      [] ->
+        {:ok, data}
+
+      _ ->
+        {:error,
+         Error.exception(%{
+           type: :partial_rejection,
+           message:
+             "#{length(errors)}/#{length(statuses)} action(s) rejected - #{Enum.join(errors, "; ")}",
+           statuses: statuses,
+           response: data
+         })}
+    end
+  end
+
+  def parse_exchange_response(
+        %{"response" => %{"data" => %{"status" => %{"error" => msg}}}} = data
+      ) do
+    {:error, Error.exception(%{type: :exchange, message: stringify(msg), response: data})}
+  end
+
+  def parse_exchange_response(data), do: {:ok, data}
+
+  defp stringify(value) when is_binary(value), do: value
+  defp stringify(value), do: inspect(value)
+
   # ===================== Private Helpers =====================
 
   defp build_url(url) do
@@ -1125,16 +1311,29 @@ defmodule Hyperliquid.Transport.Http do
 
   defp transform_keys(data), do: data
 
-  # Single-character keys have no word boundary to split on. Downcasing them
-  # would collapse distinct sibling keys into one — e.g. a candle's close time
-  # "T" onto its open time "t" — silently dropping a field. Pass them through.
-  defp to_snake_case(<<_::utf8>> = key), do: key
+  # A response key is only rewritten when it is unambiguously a camelCase
+  # *field name*. Everything else is DATA (coin symbols, token indexes,
+  # addresses, spot ids) and must survive untouched:
+  #
+  #     "BTC"        -> "BTC"     (starts uppercase)
+  #     "kPEPE"      -> "kPEPE"   (consecutive uppercase = ticker, not a field)
+  #     "@107"       -> "@107"    (non-alphanumeric)
+  #     "0xabc..."   -> "0xabc..."(starts with a digit)
+  #     "assetId"    -> "asset_id"
+  #     "l2Book"     -> "l2_book"
+  #
+  # Single-character keys are covered by the same rule: they have no word
+  # boundary to split on, and downcasing them would collapse distinct sibling
+  # keys into one — e.g. a candle's close time "T" onto its open time "t".
+  @camel_case ~r/^[a-z][A-Za-z0-9]*$/
+  @consecutive_upper ~r/[A-Z]{2}/
 
   defp to_snake_case(key) when is_binary(key) do
-    key
-    |> String.replace(~r/([A-Z])/, "_\\1")
-    |> String.downcase()
-    |> String.trim_leading("_")
+    if camel_case_field?(key) do
+      Macro.underscore(key)
+    else
+      key
+    end
   end
 
   defp to_snake_case(key) when is_atom(key) do
@@ -1144,4 +1343,10 @@ defmodule Hyperliquid.Transport.Http do
   end
 
   defp to_snake_case(key), do: key
+
+  defp camel_case_field?(key) do
+    Regex.match?(@camel_case, key) and
+      String.match?(key, ~r/[A-Z]/) and
+      not Regex.match?(@consecutive_upper, key)
+  end
 end

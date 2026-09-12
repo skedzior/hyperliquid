@@ -41,8 +41,26 @@ defmodule Hyperliquid.Api.Subscription.UserFills do
       field(:oid, :integer)
       field(:crossed, :boolean)
       field(:fee, :string)
+      # Optional fee charged by the UI builder (negative = rebate)
+      field(:builder_fee, :string)
       field(:tid, :integer)
       field(:fee_token, :string)
+      # Fee trial escrow amount (optional; added upstream in v0.33.3)
+      field(:fee_trial_escrow, :string)
+      # ID of the parent TWAP, or nil for a non-TWAP fill
+      field(:twap_id, :integer)
+      # Client order id, when the order carried one
+      field(:cloid, :string)
+
+      # Present only on liquidation fills. `liquidated_user` became OPTIONAL
+      # upstream in v0.33.3.
+      embeds_one :liquidation, Liquidation, primary_key: false do
+        @moduledoc "Liquidation details for a fill."
+
+        field(:liquidated_user, :string)
+        field(:mark_px, :string)
+        field(:method, :string)
+      end
     end
   end
 
@@ -96,9 +114,19 @@ defmodule Hyperliquid.Api.Subscription.UserFills do
       :oid,
       :crossed,
       :fee,
+      :builder_fee,
       :tid,
-      :fee_token
+      :fee_token,
+      :fee_trial_escrow,
+      :twap_id,
+      :cloid
     ])
+    |> cast_embed(:liquidation, with: &liquidation_changeset/2)
+  end
+
+  defp liquidation_changeset(liquidation, attrs) do
+    liquidation
+    |> cast(attrs, [:liquidated_user, :mark_px, :method])
   end
 
   # ===================== Storage Field Mapping =====================
@@ -125,10 +153,27 @@ defmodule Hyperliquid.Api.Subscription.UserFills do
       oid: fetch_field(attrs, ["oid"], nil),
       crossed: fetch_field(attrs, ["crossed"], nil),
       fee: fetch_field(attrs, ["fee"], nil),
+      builder_fee: fetch_field(attrs, ["builderFee", "builder_fee"], nil),
       tid: fetch_field(attrs, ["tid"], nil),
-      fee_token: fetch_field(attrs, ["feeToken", "fee_token"], nil)
+      fee_token: fetch_field(attrs, ["feeToken", "fee_token"], nil),
+      fee_trial_escrow: fetch_field(attrs, ["feeTrialEscrow", "fee_trial_escrow"], nil),
+      twap_id: fetch_field(attrs, ["twapId", "twap_id"], nil),
+      cloid: fetch_field(attrs, ["cloid"], nil),
+      liquidation: normalize_liquidation(fetch_field(attrs, ["liquidation"], nil))
     }
   end
+
+  defp normalize_liquidation(nil), do: nil
+
+  defp normalize_liquidation(attrs) when is_map(attrs) do
+    %{
+      liquidated_user: fetch_field(attrs, ["liquidatedUser", "liquidated_user"], nil),
+      mark_px: fetch_field(attrs, ["markPx", "mark_px"], nil),
+      method: fetch_field(attrs, ["method"], nil)
+    }
+  end
+
+  defp normalize_liquidation(other), do: other
 
   # Get field value, trying multiple key variants (string and atom)
   defp fetch_field(attrs, [key | rest], default) when is_binary(key) do

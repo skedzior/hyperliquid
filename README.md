@@ -1,5 +1,6 @@
 # Hyperliquid
 
+[![CI](https://github.com/skedzior/hyperliquid/actions/workflows/ci.yml/badge.svg)](https://github.com/skedzior/hyperliquid/actions/workflows/ci.yml)
 [![Hex.pm](https://img.shields.io/hexpm/v/hyperliquid.svg)](https://hex.pm/packages/hyperliquid)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -7,12 +8,12 @@ Elixir SDK for the Hyperliquid decentralized exchange with DSL-based API endpoin
 
 ## Overview
 
-Hyperliquid provides a comprehensive, type-safe interface to the Hyperliquid DEX. The DSL-based architecture eliminates boilerplate while providing response validation, automatic caching, and optional database persistence. Endpoint coverage tracks the nktkas TypeScript SDK, including HIP-4 prediction markets.
+Hyperliquid provides a comprehensive, type-safe interface to the Hyperliquid DEX. The v0.2.0 release introduces a modern DSL-based architecture that eliminates boilerplate while providing response validation, automatic caching, and optional database persistence.
 
 ## Features
 
 - **DSL-based endpoint definitions** - Clean, declarative API with automatic function generation
-- **165+ typed endpoints** - 78 Info endpoints, 60 Exchange actions, 31 WebSocket subscriptions
+- **170+ typed endpoints** - 79 Info endpoints, 60 Exchange actions, 31 WebSocket subscriptions
 - **Ecto schema validation** - Built-in response validation and type safety
 - **WebSocket connection pooling** - Efficient connection management with automatic reconnection
 - **Cachex-based caching** - Fast in-memory asset metadata and mid price lookups
@@ -28,7 +29,7 @@ Add `hyperliquid` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:hyperliquid, "~> 0.4.1"}
+    {:hyperliquid, "~> 0.2.0"}
   ]
 end
 ```
@@ -53,7 +54,7 @@ Enable database features by setting `enable_db: true` and adding the required de
 # mix.exs
 defp deps do
   [
-    {:hyperliquid, "~> 0.4.1"},
+    {:hyperliquid, "~> 0.2.0"},
     # Required when enable_db: true
     {:phoenix_ecto, "~> 4.5"},
     {:ecto_sql, "~> 3.10"},
@@ -111,54 +112,50 @@ config :hyperliquid,
   enable_node_rpc: false,
   node_url: "http://localhost:3001",
 
+  # HTTP transport
+  http_connect_timeout: 5_000,
+  http_recv_timeout: 15_000,
+  http_pool_size: 50,
+  http_max_retries: 3,
+
+  # Cache
+  cache_refresh_interval: 300_000,  # 0 disables periodic refresh
+
+  # WebSocket limits (empirically verified; see Hyperliquid.WebSocket.Limits)
+  ws_max_users_per_connection: 15,   # server cap, PER CONNECTION
+  ws_user_linger_ms: 15_000,         # tracking lingers after a slot is freed
+  ws_max_subscriptions_per_ip: 1000,
+  ws_max_connections_per_ip: 100,
+  ws_max_connections_per_minute: 30,
+  ws_max_messages_per_second: 50,
+
+  # EIP-712 signatureChainId for user-signed actions
+  # (421614 = 0x66eee, matching @nktkas/hyperliquid and the Python SDK;
+  #  the Hyperliquid frontend uses 42161 = 0xa4b1 — both are accepted)
+  signature_chain_id: 421_614,
+
   # Debug logging
   debug: false,
 
   # Private key
-  private_key: "YOUR_PRIVATE_KEY_HERE",
-
-  # EIP-712 domain chainId for user-signed actions (withdrawals, transfers,
-  # agent approvals). Must match the signatureChainId sent in the action body —
-  # the exchange rebuilds the domain from it to recover the signer, so if the two
-  # disagree it recovers the wrong address and rejects the action. Both are read
-  # from here, so they cannot drift.
-  #
-  # Defaults to 421_614 ("0x66eee"), matching the official Python SDK and the
-  # nktkas TypeScript SDK. The Hyperliquid frontend uses 42_161 ("0xa4b1");
-  # either works, as long as it is used consistently.
-  signature_chain_id: 421_614,
-
-  # szDecimals for HIP-4 outcome assets. Outcome sizes are whole numbers —
-  # confirmed on testnet, where 1000 was accepted and 1000.5 was rejected with
-  # "Order has invalid size." No endpoint publishes this, so it stays
-  # configurable in case it varies per outcome or changes on an upgrade.
-  outcome_sz_decimals: 0
+  private_key: "YOUR_PRIVATE_KEY_HERE"
 ```
 
-### HIP-4 prediction markets
+The retired `:ws_max_users` key modelled a *global* budget of 10 users; the cap
+is actually 15 per connection and subscriptions are bin-packed across
+connections accordingly.
 
-Outcome assets use their own encoding, derived from an outcome id plus a binary
-side as `outcome * 10 + side`:
+### Database migrations
 
-| representation | form | example |
-| --- | --- | --- |
-| spot coin | `#<encoding>` | `#70020` |
-| token name | `+<encoding>` | `+70020` |
-| asset ID | `100_000_000 + encoding` | `100070020` |
+With `enable_db: true`, copy the bundled Ecto migrations into your app:
 
-They appear in neither `spotMeta`'s universe nor its token list, so the cache
-resolves them from `outcomeMeta`:
-
-```elixir
-Hyperliquid.Cache.outcome_coin(7002, 0)      # => "#70020"
-Hyperliquid.Cache.outcome_asset(7002, 0)     # => 100070020
-Hyperliquid.Cache.outcome_and_side("#70020") # => {:ok, {7002, 0}}
-Hyperliquid.Cache.asset_from_coin("#70020")  # => 100070020
-
-# Outcome coins work anywhere a coin is accepted
-Hyperliquid.Api.Info.L2Book.request("#70020")
-Hyperliquid.Api.Exchange.Order.limit_order("#70020", true, "0.5", "1")
+```bash
+mix hyperliquid.gen.migrations
+mix ecto.migrate
 ```
+
+The task rewrites the module prefix to your repo and never overwrites an
+existing migration without `--force`.
 
 ## Quick Start
 
@@ -205,6 +202,12 @@ alias Hyperliquid.Api.Exchange.{Order, Cancel}
 {:ok, result} = Order.place_limit("BTC", true, "43000.0", "0.1")
 # => %{status: "ok", response: %{data: %{statuses: [%{resting: %{oid: 12345}}]}}}
 
+# A rejection is an ERROR, not an {:ok, _} envelope. Hyperliquid answers
+# rejected and partially-rejected orders with HTTP 200; the SDK classifies them:
+{:error, %Hyperliquid.Error{type: :exchange}} = Order.place_limit("BTC", true, "1", "0.1")
+# type: :partial_rejection when only some items in a batch failed —
+# error.statuses carries the full per-item list, error.response the raw envelope.
+
 # Place a market order
 {:ok, result} = Order.place_market("ETH", false, "1.5")
 
@@ -226,7 +229,31 @@ Hyperliquid exchange actions use two different signing schemes:
 
 - **Agent-key compatible** — Orders, cancels, leverage updates, and other trading actions use EIP-712 exchange domain signing. These can be signed with an **agent key** (approved via `ApproveAgent`) instead of your main private key. This is the recommended setup for trading bots.
 
-- **L1-signed actions** — Transfers (`UsdClassTransfer`, `SubAccountTransfer`), withdrawals, vault operations, sub-account creation, and other account-level actions require your **actual private key**. These cannot be delegated to an agent key.
+- **L1-signed actions** — `SubAccountTransfer`, vault operations, sub-account creation and other account-level actions are msgpack-hashed and signed with the exchange domain, and require your **actual private key**.
+
+- **User-signed (EIP-712) actions** — signed as typed data under `HyperliquidTransaction:<Action>`, carrying `signatureChainId` and `hyperliquidChain` on the wire. They all share one `signatureChainId`, set by `config :hyperliquid, signature_chain_id:` (default 421614 / `0x66eee`). These also require your main private key. There are exactly 17, matching `@nktkas/hyperliquid`:
+
+  | Module | `primaryType` |
+  |---|---|
+  | `ApproveAgent` | `HyperliquidTransaction:ApproveAgent` |
+  | `ApproveBuilderFee` | `HyperliquidTransaction:ApproveBuilderFee` |
+  | `CDeposit` | `HyperliquidTransaction:CDeposit` |
+  | `CWithdraw` | `HyperliquidTransaction:CWithdraw` |
+  | `ConvertToMultiSigUser` | `HyperliquidTransaction:ConvertToMultiSigUser` |
+  | `LinkStakingUser` | `HyperliquidTransaction:LinkStakingUser` |
+  | `SendAsset` | `HyperliquidTransaction:SendAsset` |
+  | `SendToEvmWithData` | `HyperliquidTransaction:SendToEvmWithData` |
+  | `SpotSend` | `HyperliquidTransaction:SpotSend` |
+  | `StakingLinkDisableTradingUser` | `HyperliquidTransaction:StakingLinkDisableTradingUser` |
+  | `TokenDelegate` | `HyperliquidTransaction:TokenDelegate` |
+  | `UsdClassTransfer` | `HyperliquidTransaction:UsdClassTransfer` |
+  | `UsdSend` | `HyperliquidTransaction:UsdSend` |
+  | `UserDexAbstraction` | `HyperliquidTransaction:UserDexAbstraction` |
+  | `UserPortfolioMargin` | `HyperliquidTransaction:UserPortfolioMargin` |
+  | `UserSetAbstraction` | `HyperliquidTransaction:UserSetAbstraction` |
+  | `Withdraw3` | `HyperliquidTransaction:Withdraw` |
+
+  Everything else in `Hyperliquid.Api.Exchange` is an L1 msgpack action — including the deceptively named `AgentSendAsset`, `AgentSetAbstraction` and `AgentEnableDexAbstraction`, which carry no `signatureChainId`.
 
 ```elixir
 # Agent-key compatible (trading actions)
@@ -236,9 +263,9 @@ config :hyperliquid, private_key: "YOUR_AGENT_KEY"
 Order.place_limit("BTC", true, "43000.0", "0.1")
 Cancel.cancel(0, 12345)
 
-# L1-signed actions (require main private key)
+# User-signed / L1 actions (require main private key)
 alias Hyperliquid.Api.Exchange.UsdClassTransfer
-UsdClassTransfer.request(%{...}, private_key: "YOUR_MAIN_PRIVATE_KEY")
+UsdClassTransfer.request("100.0", true, private_key: "YOUR_MAIN_PRIVATE_KEY")
 ```
 
 ### WebSocket Subscriptions
@@ -264,6 +291,22 @@ Manager.unsubscribe(sub_id)
 # List active subscriptions
 Manager.list_subscriptions()
 ```
+
+Delivery:
+
+- With a callback, it runs in a **per-subscription process**, not on the
+  Manager. A slow or raising callback can no longer stall or kill other feeds.
+- **Without** a callback, messages are sent to the subscribing process as
+  `{:hyperliquid_ws, sub_id, message}` (previously such subscriptions received
+  nothing).
+- Events are demultiplexed by the **full** subscription identity (channel plus
+  `coin` / `user` / `interval` / `dex`), so an `l2Book` subscriber for BTC never
+  sees ETH books.
+- Subscribing does not block: `subscribe/3` and `unsubscribe/2` are asynchronous
+  and connecting is fully async.
+- Subscriptions are bin-packed across connections under the real server caps
+  (15 unique users **per connection**), and are torn down when the subscribing
+  process exits.
 
 ### Using the Cache
 
@@ -326,7 +369,7 @@ The Info API provides read-only market and account information. All endpoints ar
 - `Delegations` - User delegations
 - `DelegatorRewards` - Delegation rewards
 
-See the [HexDocs](https://hexdocs.pm/hyperliquid) for the complete list of 78 Info endpoints.
+See the [HexDocs](https://hexdocs.pm/hyperliquid) for the complete list of 79 Info endpoints.
 
 ### Exchange API (Trading Operations)
 
@@ -581,7 +624,7 @@ Use Hyperliquid in Livebook for interactive trading and analysis:
 
 ```elixir
 Mix.install([
-  {:hyperliquid, "~> 0.4.1"}
+  {:hyperliquid, "~> 0.2.0"}
 ],
 config: [
   hyperliquid: [
@@ -598,7 +641,7 @@ alias Hyperliquid.Api.Info.AllMids
 
 ```elixir
 Mix.install([
-  {:hyperliquid, "~> 0.4.1"}
+  {:hyperliquid, "~> 0.2.0"}
 ],
 config: [
   hyperliquid: [
@@ -611,42 +654,6 @@ config: [
 ## Local Node
 
 When running a Hyperliquid node with `--serve-info` and/or `--serve-eth-rpc`, the `Hyperliquid.Node` module provides low-latency access without rate limits.
-
-### Running the node
-
-Start `hl-node` with the flags for whichever surfaces you want. Both are served
-on the same port (3001 by default):
-
-```bash
-# Info server only
-./hl-node --serve-info
-
-# Info server + EVM JSON-RPC
-./hl-node --serve-info --serve-eth-rpc
-```
-
-Confirm each is up before pointing the client at it:
-
-```bash
-# Info server
-curl -s -X POST http://localhost:3001/info \
-  -H 'Content-Type: application/json' \
-  -d '{"type":"exchangeStatus"}'
-# => {"specialStatuses":null,"time":1786299106680}
-
-# EVM RPC
-curl -s -X POST http://localhost:3001/evm \
-  -H 'Content-Type: application/json' \
-  -d '{"jsonrpc":"2.0","id":1,"method":"eth_chainId","params":[]}'
-# => {"jsonrpc":"2.0","id":1,"result":"0x3e7"}
-```
-
-If the node runs on another host, tunnel the port rather than exposing it —
-the info server binds `0.0.0.0` and is unauthenticated:
-
-```bash
-ssh -N -L 3001:localhost:3001 your-node-host
-```
 
 ### Configuration
 
@@ -672,8 +679,6 @@ alias Hyperliquid.Node
 {:ok, metas} = Node.all_perp_metas()
 {:ok, reserves} = Node.all_borrow_lend_reserve_states()
 {:ok, spot} = Node.spot_meta()
-{:ok, auction} = Node.gossip_priority_auction_status()
-{:ok, ann} = Node.perp_concise_annotations()
 
 # User-param endpoints
 {:ok, state} = Node.clearinghouse_state("0x...")
@@ -682,15 +687,10 @@ alias Hyperliquid.Node
 {:ok, accounts} = Node.sub_accounts2("0x...")
 {:ok, abstraction} = Node.user_dex_abstraction("0x...")
 
-# HIP-4 prediction markets
-{:ok, meta} = Node.outcome_meta()
-{:ok, templates} = Node.outcome_templates()
-{:ok, settled} = Node.settled_outcome(1)
-
 # Other single-param endpoints
 {:ok, table} = Node.margin_table(56)
+{:ok, info} = Node.aligned_quote_token_info(0)
 {:ok, limits} = Node.perp_dex_limits("some_dex")
-{:ok, status} = Node.perp_dex_status("")
 {:ok, reserve} = Node.borrow_lend_reserve_state(0)
 {:ok, ann} = Node.perp_annotation("BTC")
 
@@ -708,13 +708,12 @@ alias Hyperliquid.Node
 ```
 
 <details>
-<summary>Supported local node info endpoints (48 verified)</summary>
+<summary>Supported local node info endpoints (42 total)</summary>
 
 **No-param:** `meta`*, `spotMeta`, `allPerpMetas`, `allBorrowLendReserveStates`,
 `exchangeStatus`, `liquidatable`, `vaultSummaries`, `leadingVaults`, `perpDexs`,
 `perpCategories`, `perpDeployAuctionStatus`, `perpsAtOpenInterestCap`*, `spotDeployState`,
-`spotPairDeployAuctionStatus`, `validatorL1Votes`, `maxMarketOrderNtls`,
-`gossipPriorityAuctionStatus`, `perpConciseAnnotations`, `outcomeMeta`, `outcomeTemplates`
+`spotPairDeployAuctionStatus`, `validatorL1Votes`, `maxMarketOrderNtls`
 
 **User-param:** `clearinghouseState`*, `spotClearinghouseState`, `openOrders`*,
 `frontendOpenOrders`*, `extraAgents`, `subAccounts`, `subAccounts2`, `userFees`,
@@ -724,31 +723,18 @@ alias Hyperliquid.Node
 
 **User+coin:** `activeAssetData`
 
-**Other params:** `marginTable` (id), `borrowLendReserveState` (token, **integer**),
-`perpAnnotation` (coin), `perpDexLimits` (dex), `perpDexStatus` (dex),
-`settledOutcome` (outcome)
+**Other params:** `marginTable` (id), `alignedQuoteTokenInfo` (token),
+`borrowLendReserveState` (token), `perpAnnotation` (coin), `perpDexLimits` (dex)
 
 \* Supports optional `dex:` keyword arg
 
-**Not served by the node.** These fall back to the public API. The node holds
-state, not indexed history or aggregated market data, which is what this split
-reflects:
-
-`allMids`, `metaAndAssetCtxs`, `spotMetaAndAssetCtxs`, `predictedFundings`,
-`l2Book`, `recentTrades`, `candleSnapshot`, `fundingHistory`, `userFills`,
-`userFillsByTime`, `userFunding`, `userBorrowLendInterest`,
-`userNonFundingLedgerUpdates`, `historicalOrders`, `orderStatus`, `vaultDetails`,
-`tokenDetails`, `validatorSummaries`, `gossipRootIps`, `usdcRouting`, `portfolio`,
-`referral`, `isVip`, `legalCheck`, `preTransferCheck`, `twapHistory`,
-`delegatorHistory`, `delegatorRewards`, `userTwapSliceFills`,
-`userTwapSliceFillsByTime`, `alignedQuoteTokenInfo`
-
-`Node.aligned_quote_token_info/1` is still generated, but the node rejects it —
-probed with both string and integer token values.
-
-Verified by probing a live node on 2026-08-09. The node returns the same
-deserialization error for an unknown request type and a malformed one, so a
-type absent here may simply need a different request shape.
+**Not supported on local node:** `allMids`, `metaAndAssetCtxs`, `spotMetaAndAssetCtxs`,
+`predictedFundings`, `l2Book`, `recentTrades`, `candleSnapshot`, `fundingHistory`,
+`userFills`, `userFillsByTime`, `userFunding`, `userBorrowLendInterest`,
+`userNonFundingLedgerUpdates`, `historicalOrders`, `orderStatus`, `perpDexStatus`,
+`vaultDetails`, `tokenDetails`, `validatorSummaries`, `gossipRootIps`,
+`portfolio`, `referral`, `isVip`, `legalCheck`, `preTransferCheck`, `twapHistory`,
+`delegatorHistory`, `delegatorRewards`, `userTwapSliceFills`, `userTwapSliceFillsByTime`
 
 </details>
 
@@ -851,6 +837,24 @@ mix format
 # Generate docs
 mix docs
 ```
+
+`mix test` excludes three tag groups unconditionally so it runs offline with no
+Postgres: opt back in with `HYPERLIQUID_TEST_DB=1`, `HYPERLIQUID_TEST_NETWORK=1`
+or `HYPERLIQUID_TEST_KNOWN_FAILING=1`.
+
+### Releasing
+
+Two commands — the first only once per machine:
+
+```bash
+scripts/hex-auth-setup.sh     # store a hex.pm API key (0600)
+scripts/release.sh 0.5.0      # bump, tag, build NIFs, verify, publish
+```
+
+`scripts/release.sh` is idempotent: every step detects whether it has already
+run, so re-running the same command is how you resume after a failure. See
+**[docs/releasing.md](docs/releasing.md)** for the full runbook, the
+precompiled-NIF checksum bootstrap, and recovery steps.
 
 ## Documentation
 

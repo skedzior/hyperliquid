@@ -4,13 +4,17 @@ defmodule Hyperliquid.Api.Exchange.Order do
 
   Supports limit orders, trigger orders (stop-loss/take-profit), and batch ordering.
 
+  ## Minimum order notional
+
+  Perp and spot orders have a $10 minimum notional; **outcome-market orders have a $1
+  minimum**. This SDK does not enforce either — the exchange does.
+
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
   require Logger
 
-  alias Hyperliquid.{Cache, Config, Signer, Utils}
-  alias Hyperliquid.Api.ActionEncoder
+  alias Hyperliquid.{Cache, Config, Utils}
   alias Hyperliquid.Utils.Format
   alias Hyperliquid.Transport.Http
 
@@ -271,7 +275,13 @@ defmodule Hyperliquid.Api.Exchange.Order do
           order_type: :trigger,
           trigger_px: String.t(),
           is_market: boolean(),
+          # Documented values: "tp" | "sl". The wire enum is open — trailing-stop
+          # variants are live on testnet but their shape is not published yet.
           tpsl: String.t(),
+          # Passthrough merged into the emitted `t.trigger` object. Seam for
+          # trailing-stop fields until the official shape lands; keys are used
+          # verbatim, so no field names are invented here.
+          extra: map() | nil,
           cloid: String.t() | nil
         }
 
@@ -280,21 +290,28 @@ defmodule Hyperliquid.Api.Exchange.Order do
   @typedoc """
   Order grouping strategy.
 
-  `{:priority, rate}` is an order priority fee: the rate is charged as the
-  fraction `rate / 100_000_000` of filled notional for IOC orders, or of resting
-  notional for ALO orders, taken from undelegated staking balance.
-
-  Priority grouping is only valid when every order in the batch is on a
-  non-outcome asset and either all of them are IOC or all of them are
-  non-reduce-only ALO.
-
-  See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/priority-fees
+  - `:na` — standard order without grouping
+  - `:normal_tpsl` — TP/SL with fixed size that does not adjust with position changes
+  - `:position_tpsl` — TP/SL that adjusts proportionally with position size
+  - `{:priority, p}` / `%{p: p}` — order priority rate as the fraction `p / 1e8`.
+    `p` is an integer in `0..100_000_000` (the cap was raised from 80_000 / 8 bps to
+    100%). Valid only when every order is on a non-outcome asset and either every
+    order is IOC or every order is a non-reduce-only ALO.
   """
-  @type grouping :: :na | :normal_tpsl | :position_tpsl | {:priority, non_neg_integer()}
+  @type grouping ::
+          :na
+          | :normal_tpsl
+          | :position_tpsl
+          | {:priority, non_neg_integer()}
+          | %{p: non_neg_integer()}
 
-  # Maximum order priority rate, corresponding to 100%.
-  @max_priority_rate 100_000_000
+  @typedoc """
+  Builder fee info. `fee` is in tenths of a basis point (`1` = 0.0001%).
 
+  On **outcome-market buy** orders the builder fee is charged in the market's
+  **quote token** on a best-effort basis; outcome *sell* orders inherit the spot
+  builder-fee behaviour.
+  """
   @type builder_info :: %{
           builder: String.t(),
           fee: non_neg_integer()
@@ -329,13 +346,7 @@ defmodule Hyperliquid.Api.Exchange.Order do
 
   ## Options
     - `:reduce_only` - Only reduce position (default: false)
-    - `:tif` - Time in force (default: `"Gtc"`):
-      - `"Gtc"` - Remains active until filled or cancelled
-      - `"Ioc"` - Fills immediately, cancels any unfilled portion
-      - `"Alo"` - Add liquidity only; rejected if it would cross
-      - `"FrontendMarket"` - Behaves like `"Ioc"`, but tags the order as a
-        market order. Not currently listed in the public API docs; accepted by
-        the exchange and used by the frontend.
+    - `:tif` - Time in force: "Gtc", "Ioc", "Alo" (default: "Gtc")
     - `:cloid` - Client order ID
 
   ## Examples
@@ -373,6 +384,10 @@ defmodule Hyperliquid.Api.Exchange.Order do
     - `:is_market` - Execute as market order when triggered (default: true)
     - `:tpsl` - "sl" for stop-loss, "tp" for take-profit (default: "sl")
     - `:cloid` - Client order ID
+    - `:extra` - Map of additional keys merged verbatim into the emitted `t.trigger`
+      object. Escape hatch for fields not yet in the official schema (e.g. trailing
+      stops, which are live on testnet but whose API field names are unpublished).
+      Keys are emitted exactly as given — nothing is renamed or invented.
 
   ## Examples
 
@@ -395,6 +410,7 @@ defmodule Hyperliquid.Api.Exchange.Order do
       trigger_px: trigger_px,
       is_market: Keyword.get(opts, :is_market, true),
       tpsl: Keyword.get(opts, :tpsl, "sl"),
+      extra: Keyword.get(opts, :extra),
       cloid: Keyword.get(opts, :cloid)
     }
   end
@@ -505,10 +521,10 @@ defmodule Hyperliquid.Api.Exchange.Order do
     - `:na` - No grouping (default)
     - `:normal_tpsl` - Group TP/SL with entry order
     - `:position_tpsl` - Attach TP/SL to existing position
-    - `{:priority, rate}` - Order priority fee, charged as `rate / 1e8` of
-      filled notional (IOC) or resting notional (ALO), from undelegated staking
-      balance. Only valid when every order is on a non-outcome asset and either
-      all are IOC or all are non-reduce-only ALO. Max rate is `100_000_000`.
+    - `{:priority, p}` (or `%{p: p}`) - Priority-rate grouping; emits `{"p": p}` where
+      the rate is `p / 1e8`. `p` is an integer in `0..100_000_000` (100%). Valid only
+      when every order is on a non-outcome asset and either every order is IOC or
+      every order is a non-reduce-only ALO.
 
   ## Options
     - `:private_key` - Private key for signing (falls back to config)
@@ -538,8 +554,7 @@ defmodule Hyperliquid.Api.Exchange.Order do
     vault_address = Keyword.get(opts, :vault_address)
     builder = Keyword.get(opts, :builder)
 
-    # Field order is part of the signed preimage — see Hyperliquid.Api.ActionEncoder.
-    action = orders |> build_action(grouping, builder) |> ActionEncoder.canonicalize()
+    action = build_action(orders, grouping, builder)
     nonce = generate_nonce()
     expires_after = Config.expires_after()
 
@@ -549,6 +564,8 @@ defmodule Hyperliquid.Api.Exchange.Order do
       vault_address: vault_address,
       nonce: nonce
     })
+
+    action = Hyperliquid.Api.Exchange.Action.ordered(action)
 
     with {:ok, action_json} <- Jason.encode(action),
          _ <- debug("Action encoded", %{action: action}),
@@ -568,7 +585,9 @@ defmodule Hyperliquid.Api.Exchange.Order do
 
   # ===================== Action Building =====================
 
-  defp build_action(orders, grouping, builder) do
+  @doc false
+  # Exposed for tests: builds the action map without signing or performing IO.
+  def build_action(orders, grouping, builder) do
     action = %{
       type: "order",
       orders: Enum.map(orders, &format_order/1),
@@ -610,16 +629,27 @@ defmodule Hyperliquid.Api.Exchange.Order do
       s: Utils.float_to_string(order.sz),
       r: order.reduce_only,
       t: %{
-        trigger: %{
-          isMarket: order.is_market,
-          triggerPx: Utils.float_to_string(order.trigger_px),
-          tpsl: order.tpsl
-        }
+        trigger:
+          merge_extra(
+            %{
+              isMarket: order.is_market,
+              triggerPx: Utils.float_to_string(order.trigger_px),
+              tpsl: order.tpsl
+            },
+            Map.get(order, :extra)
+          )
       }
     }
 
     maybe_add_cloid(base, order.cloid)
   end
+
+  # Passthrough seam (see `trigger/6`'s `:extra` option): merges caller-supplied keys
+  # into the trigger object verbatim so undocumented fields (trailing stops) can be
+  # sent without a breaking signature change once the shape is published.
+  defp merge_extra(trigger, nil), do: trigger
+  defp merge_extra(trigger, extra) when map_size(extra) == 0, do: trigger
+  defp merge_extra(trigger, extra) when is_map(extra), do: Map.merge(trigger, extra)
 
   defp maybe_add_cloid(order, nil), do: order
   defp maybe_add_cloid(order, cloid), do: Map.put(order, :c, cloid)
@@ -627,41 +657,34 @@ defmodule Hyperliquid.Api.Exchange.Order do
   defp format_grouping(:na), do: "na"
   defp format_grouping(:normal_tpsl), do: "normalTpsl"
   defp format_grouping(:position_tpsl), do: "positionTpsl"
+  defp format_grouping({:priority, p}), do: format_grouping(%{p: p})
 
-  defp format_grouping({:priority, rate})
-       when is_integer(rate) and rate >= 0 and rate <= @max_priority_rate do
-    %{p: rate}
+  defp format_grouping(%{p: p}) when is_integer(p) and p >= 0 and p <= 100_000_000 do
+    # Priority-rate grouping: the rate is `p / 1e8`. Max was raised to 100%.
+    %{p: p}
   end
 
-  defp format_grouping({:priority, rate}) do
-    raise ArgumentError,
-          "order priority rate must be an integer between 0 and #{@max_priority_rate} " <>
-            "(a fraction of 1e8), got: #{inspect(rate)}"
-  end
+  defp format_grouping(%{p: p}),
+    do:
+      raise(
+        ArgumentError,
+        "priority grouping p must be an integer in 0..100_000_000, got #{inspect(p)}"
+      )
 
   # ===================== Signing =====================
 
   defp sign_action(private_key, action_json, nonce, vault_address, expires_after) do
-    is_mainnet = Config.mainnet?()
-
-    case Signer.sign_exchange_action_ex(
-           private_key,
-           action_json,
-           nonce,
-           is_mainnet,
-           vault_address,
-           expires_after
-         ) do
-      %{"r" => r, "s" => s, "v" => v} ->
-        {:ok, %{r: r, s: s, v: v}}
-
-      error ->
-        {:error, {:signing_error, error}}
-    end
+    Hyperliquid.Api.Exchange.Action.sign_json(
+      private_key,
+      action_json,
+      nonce,
+      vault_address,
+      expires_after
+    )
   end
 
   defp generate_nonce do
-    System.system_time(:millisecond)
+    Hyperliquid.Utils.generate_nonce()
   end
 
   # ===================== Debug Logging =====================

@@ -51,22 +51,211 @@ defmodule Hyperliquid.Utils do
     end)
   end
 
-  def float_to_string(value) when is_float(value) do
-    if value == trunc(value) do
-      Integer.to_string(trunc(value))
-    else
-      Float.to_string(value)
+  # Number of decimals Hyperliquid accepts on the wire for prices/sizes.
+  @wire_decimals 8
+  # Same tolerance the Python SDK uses in `float_to_wire/1`.
+  @wire_rounding_tolerance 1.0e-12
+
+  @doc """
+  Format a number for the Hyperliquid wire, matching the Python SDK's
+  `hyperliquid.utils.signing.float_to_wire/1` semantics exactly.
+
+  Rules:
+
+    * fixed-point notation only — never scientific notation (`1.0e-5` is a
+      signature-breaking wire value),
+    * the float is rendered with 8 decimals and then normalized: trailing
+      zeros and a trailing `.` are removed, `-0` becomes `0`,
+    * a value that cannot be represented in 8 decimals (loss `>= 1.0e-12`)
+      raises, rather than being silently truncated inside a signed action,
+    * integers are rendered without a `.0` suffix,
+    * binaries are **not** re-parsed through `Float.parse/1` (which is what
+      re-introduced exponent notation for already-formatted values). A string
+      that is already a plain decimal numeral only has its redundant zeros
+      trimmed textually, so digits beyond float precision survive; exponent
+      notation is expanded textually as well.
+
+  ## Examples
+
+      iex> Hyperliquid.Utils.float_to_wire(0.00001)
+      "0.00001"
+
+      iex> Hyperliquid.Utils.float_to_wire(0.1 + 0.2)
+      "0.3"
+
+      iex> Hyperliquid.Utils.float_to_wire(27)
+      "27"
+
+      iex> Hyperliquid.Utils.float_to_wire(27.0)
+      "27"
+
+      iex> Hyperliquid.Utils.float_to_wire("0.00001")
+      "0.00001"
+  """
+  @spec float_to_wire(number() | String.t()) :: String.t()
+  def float_to_wire(value) when is_float(value) do
+    rounded = :erlang.float_to_binary(value, decimals: @wire_decimals)
+
+    if abs(String.to_float(rounded) - value) >= @wire_rounding_tolerance do
+      raise ArgumentError,
+            "float_to_wire causes rounding: #{inspect(value)} does not fit in " <>
+              "#{@wire_decimals} decimals"
+    end
+
+    normalize_decimal_string(rounded)
+  end
+
+  def float_to_wire(value) when is_integer(value), do: Integer.to_string(value)
+
+  def float_to_wire(value) when is_binary(value) do
+    trimmed = String.trim(value)
+
+    cond do
+      Regex.match?(~r/^-?\d+(\.\d+)?$/, trimmed) -> normalize_decimal_string(trimmed)
+      Regex.match?(~r/^-?(\d+\.?\d*|\.\d+)[eE][-+]?\d+$/, trimmed) -> expand_exponent(trimmed)
+      true -> value
     end
   end
 
-  def float_to_string(value) when is_integer(value) do
-    Integer.to_string(value)
+  @doc """
+  Render a number in plain (never scientific) decimal notation, preserving all
+  significant digits and applying no rounding check.
+
+  This is the input normalizer for `Hyperliquid.Utils.Format`, which does its
+  own tick/lot truncation. Use `float_to_wire/1` for values that go straight
+  onto the wire.
+  """
+  @spec to_plain_string(number() | String.t()) :: String.t()
+  def to_plain_string(value) when is_float(value) do
+    value
+    |> :erlang.float_to_binary([:short])
+    |> float_to_wire()
   end
 
-  def float_to_string(value) when is_binary(value) do
-    case Float.parse(value) do
-      {float_value, ""} -> float_to_string(float_value)
-      :error -> value
+  def to_plain_string(value) when is_integer(value), do: Integer.to_string(value)
+  def to_plain_string(value) when is_binary(value), do: float_to_wire(value)
+  def to_plain_string(value), do: to_string(value)
+
+  @doc """
+  Non-raising variant of `float_to_wire/1`.
+  """
+  @spec safe_float_to_wire(number() | String.t()) :: {:ok, String.t()} | {:error, term()}
+  def safe_float_to_wire(value) do
+    {:ok, float_to_wire(value)}
+  rescue
+    e in ArgumentError -> {:error, e.message}
+  end
+
+  @doc """
+  Deprecated alias for `float_to_wire/1`, kept for backwards compatibility.
+  """
+  @spec float_to_string(number() | String.t()) :: String.t()
+  def float_to_string(value), do: float_to_wire(value)
+
+  # Rewrites scientific notation into plain decimal notation without going
+  # through `Float.parse/1` (which would re-introduce the exponent form).
+  defp expand_exponent(string) do
+    [mantissa, exponent] = String.split(string, ~r/[eE]/, parts: 2)
+    exponent = String.to_integer(exponent)
+
+    {sign, mantissa} =
+      case mantissa do
+        "-" <> rest -> {"-", rest}
+        "+" <> rest -> {"", rest}
+        rest -> {"", rest}
+      end
+
+    {int, dec} =
+      case String.split(mantissa, ".", parts: 2) do
+        [i] -> {i, ""}
+        [i, d] -> {i, d}
+      end
+
+    digits = int <> dec
+    point = String.length(int) + exponent
+
+    {int_part, dec_part} =
+      cond do
+        point <= 0 ->
+          {"0", String.duplicate("0", -point) <> digits}
+
+        point >= String.length(digits) ->
+          {digits <> String.duplicate("0", point - String.length(digits)), ""}
+
+        true ->
+          {String.slice(digits, 0, point), String.slice(digits, point..-1//1)}
+      end
+
+    normalize_decimal_string(
+      sign <> int_part <> if(dec_part == "", do: "", else: "." <> dec_part)
+    )
+  end
+
+  defp normalize_decimal_string(string) do
+    string
+    |> then(fn s ->
+      if String.contains?(s, ".") do
+        s |> String.replace(~r/0+$/, "") |> String.replace(~r/\.$/, "")
+      else
+        s
+      end
+    end)
+    |> String.replace(~r/^(-?)0+(?=\d)/, "\\1")
+    |> then(fn
+      "" -> "0"
+      "-" -> "0"
+      "-0" -> "0"
+      s -> s
+    end)
+  end
+
+  @doc """
+  Monotonically increasing millisecond nonce, shared process-wide.
+
+  Hyperliquid requires nonces to be strictly increasing per address. Plain
+  `System.system_time(:millisecond)` collides when two calls land in the same
+  millisecond and regresses when the wall clock steps backwards, so the value
+  is clamped to `max(now, last + 1)` through an `:atomics` counter.
+  """
+  @spec generate_nonce() :: pos_integer()
+  def generate_nonce do
+    ref = nonce_ref()
+    now = System.system_time(:millisecond)
+    bump_nonce(ref, now)
+  end
+
+  defp bump_nonce(ref, now) do
+    last = :atomics.get(ref, 1)
+    next = max(now, last + 1)
+
+    case :atomics.compare_exchange(ref, 1, last, next) do
+      :ok -> next
+      _other -> bump_nonce(ref, now)
+    end
+  end
+
+  @nonce_key {__MODULE__, :nonce_ref}
+
+  defp nonce_ref do
+    case :persistent_term.get(@nonce_key, nil) do
+      nil ->
+        # `:persistent_term.put/2` is last-write-wins, so two racing callers
+        # could otherwise end up counting on two different atomics and hand out
+        # the same nonce twice. Serialize the one-off creation.
+        :global.trans({@nonce_key, self()}, fn ->
+          case :persistent_term.get(@nonce_key, nil) do
+            nil ->
+              ref = :atomics.new(1, signed: false)
+              :persistent_term.put(@nonce_key, ref)
+              ref
+
+            ref ->
+              ref
+          end
+        end)
+
+      ref ->
+        ref
     end
   end
 

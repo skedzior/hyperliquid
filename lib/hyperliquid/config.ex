@@ -113,6 +113,8 @@ defmodule Hyperliquid.Config do
     end
   end
 
+  @default_signature_chain_id 421_614
+
   @doc """
   Returns the chain id used in the EIP-712 domain when signing user-signed
   actions, as an integer.
@@ -130,13 +132,24 @@ defmodule Hyperliquid.Config do
   Arbitrum Sepolia), matching the official Python SDK and the nktkas TypeScript
   SDK, so signatures produced here are byte-comparable with theirs.
 
+  Accepts an integer or a `"0x…"` hex string.
+
   Override with `config :hyperliquid, signature_chain_id: 42_161`.
   """
-  @default_signature_chain_id 421_614
-
   @spec signature_chain_id() :: non_neg_integer()
   def signature_chain_id do
-    Application.get_env(:hyperliquid, :signature_chain_id, @default_signature_chain_id)
+    case Application.get_env(:hyperliquid, :signature_chain_id, @default_signature_chain_id) do
+      id when is_integer(id) and id >= 0 ->
+        id
+
+      "0x" <> hex ->
+        String.to_integer(hex, 16)
+
+      other ->
+        raise ArgumentError,
+              "invalid :signature_chain_id #{inspect(other)} - expected a non-negative " <>
+                "integer or a \"0x\"-prefixed hex string"
+    end
   end
 
   @doc """
@@ -453,25 +466,131 @@ defmodule Hyperliquid.Config do
   end
 
   @doc """
-  Returns the maximum number of simultaneous WebSocket connections.
+  Returns the interval between periodic cache metadata refreshes, in milliseconds.
 
-  Hyperliquid enforces a limit of 10 concurrent WebSocket connections per client.
-  The manager will return `{:error, :connection_limit_exceeded}` when this is reached.
+  `Hyperliquid.Cache.Warmer` re-fetches perp/spot metadata on this interval so
+  new listings, new builder DEXs and changed `szDecimals` are picked up without
+  a VM restart. Set to `0` (or a negative number) to disable periodic refresh.
+
+  Defaults to 300,000ms (5 minutes).
 
   ## Configuration
 
       config :hyperliquid,
-        ws_max_connections: 10
+        cache_refresh_interval: 600_000
   """
-  def ws_max_connections do
-    Application.get_env(:hyperliquid, :ws_max_connections, 10)
+  def cache_refresh_interval do
+    Application.get_env(:hyperliquid, :cache_refresh_interval, 300_000)
   end
+
+  # ===================== HTTP transport =====================
+
+  @doc """
+  Returns the TCP connect timeout for HTTP requests, in milliseconds.
+
+  Defaults to 5,000ms.
+
+  ## Configuration
+
+      config :hyperliquid, http_connect_timeout: 5_000
+  """
+  def http_connect_timeout do
+    Application.get_env(:hyperliquid, :http_connect_timeout, 5_000)
+  end
+
+  @doc """
+  Returns the receive timeout for HTTP requests, in milliseconds.
+
+  Defaults to 15,000ms.
+
+  ## Configuration
+
+      config :hyperliquid, http_recv_timeout: 15_000
+  """
+  def http_recv_timeout do
+    Application.get_env(:hyperliquid, :http_recv_timeout, 15_000)
+  end
+
+  @doc """
+  Returns the maximum number of connections in the dedicated hackney pool.
+
+  The SDK uses its own `:hyperliquid_http` pool so it never competes with the
+  host application for hackney's global `:default` pool. Defaults to 50.
+
+  ## Configuration
+
+      config :hyperliquid, http_pool_size: 100
+  """
+  def http_pool_size do
+    Application.get_env(:hyperliquid, :http_pool_size, 50)
+  end
+
+  @doc """
+  Returns the maximum number of *retries* (not attempts) for read requests.
+
+  Retries apply only to reads (info/explorer/stats/RPC-free GETs) on 429, 5xx
+  and transient transport errors. `/exchange` writes are never retried.
+  Defaults to 3.
+
+  ## Configuration
+
+      config :hyperliquid, http_max_retries: 3
+  """
+  def http_max_retries do
+    Application.get_env(:hyperliquid, :http_max_retries, 3)
+  end
+
+  @doc """
+  Returns the base delay for exponential backoff between retries, in milliseconds.
+
+  Defaults to 200ms. The actual delay is full-jittered: a random value in
+  `1..min(base * 2^(attempt - 1), http_max_retry_delay)`.
+
+  ## Configuration
+
+      config :hyperliquid, http_retry_base_delay: 200
+  """
+  def http_retry_base_delay do
+    Application.get_env(:hyperliquid, :http_retry_base_delay, 200)
+  end
+
+  @doc """
+  Returns the ceiling for a single retry delay, in milliseconds.
+
+  Also caps a server-supplied `Retry-After`. Defaults to 5,000ms.
+
+  ## Configuration
+
+      config :hyperliquid, http_max_retry_delay: 5_000
+  """
+  def http_max_retry_delay do
+    Application.get_env(:hyperliquid, :http_max_retry_delay, 5_000)
+  end
+
+  @doc """
+  Returns the maximum number of simultaneous WebSocket connections per IP.
+
+  Hyperliquid allows roughly 100 concurrent WebSocket connections per IP.
+  The legacy `:ws_max_connections` key is still honoured when set.
+
+  ## Configuration
+
+      config :hyperliquid,
+        ws_max_connections_per_ip: 100
+  """
+  def ws_max_connections_per_ip do
+    get_env(:ws_max_connections_per_ip) || get_env(:ws_max_connections) || 100
+  end
+
+  @doc """
+  Deprecated alias for `ws_max_connections_per_ip/0`.
+  """
+  def ws_max_connections, do: ws_max_connections_per_ip()
 
   @doc """
   Returns the maximum number of new WebSocket connections allowed per minute.
 
-  Hyperliquid enforces a rate limit of 30 new connections per minute per client.
-  The manager will return `{:error, :connection_rate_exceeded}` when this is reached.
+  Hyperliquid enforces a rate limit of 30 new connections per minute per IP.
 
   ## Configuration
 
@@ -483,34 +602,96 @@ defmodule Hyperliquid.Config do
   end
 
   @doc """
-  Returns the maximum number of simultaneous WebSocket subscriptions.
+  Returns the maximum number of simultaneous WebSocket subscriptions per IP.
 
-  Hyperliquid enforces a limit of 1000 concurrent subscriptions per client.
-  The manager will return `{:error, :subscription_limit_exceeded}` when this is reached.
+  Hyperliquid enforces a limit of ~1000 concurrent subscriptions per IP.
+  The legacy `:ws_max_subscriptions` key is still honoured when set.
 
   ## Configuration
 
       config :hyperliquid,
-        ws_max_subscriptions: 1000
+        ws_max_subscriptions_per_ip: 1000
   """
-  def ws_max_subscriptions do
-    Application.get_env(:hyperliquid, :ws_max_subscriptions, 1000)
+  def ws_max_subscriptions_per_ip do
+    get_env(:ws_max_subscriptions_per_ip) || get_env(:ws_max_subscriptions) || 1000
   end
 
   @doc """
-  Returns the maximum number of unique users allowed across user-specific WebSocket subscriptions.
+  Deprecated alias for `ws_max_subscriptions_per_ip/0`.
+  """
+  def ws_max_subscriptions, do: ws_max_subscriptions_per_ip()
 
-  Hyperliquid enforces a limit of 10 unique users across all user-grouped subscriptions
-  (e.g., userFills, userFundings, orderUpdates). The manager will return
-  `{:error, :user_limit_exceeded}` when subscribing would exceed this limit.
+  @doc """
+  Returns the maximum number of subscriptions carried by a single connection.
+
+  Defaults to the per-IP subscription cap.
 
   ## Configuration
 
       config :hyperliquid,
-        ws_max_users: 10
+        ws_max_subscriptions_per_connection: 1000
   """
-  def ws_max_users do
-    Application.get_env(:hyperliquid, :ws_max_users, 10)
+  def ws_max_subscriptions_per_connection do
+    get_env(:ws_max_subscriptions_per_connection) || ws_max_subscriptions_per_ip()
+  end
+
+  @doc """
+  Returns the maximum number of unique user addresses a *single* WebSocket
+  connection may track.
+
+  Empirically the server rejects the 16th unique user on a connection with
+  `"Cannot track more than 15 total users."` — the cap is per connection, not
+  per IP, and not the documented 10. The retired `:ws_max_users` key modelled a
+  global budget of 10 and is no longer read.
+
+  ## Configuration
+
+      config :hyperliquid,
+        ws_max_users_per_connection: 15
+  """
+  def ws_max_users_per_connection do
+    Application.get_env(:hyperliquid, :ws_max_users_per_connection, 15)
+  end
+
+  @doc """
+  Returns how long (ms) the server keeps tracking a user after its last
+  subscription on a connection goes away. A released user slot only becomes
+  reusable after this window.
+
+  ## Configuration
+
+      config :hyperliquid,
+        ws_user_linger_ms: 15_000
+  """
+  def ws_user_linger_ms do
+    Application.get_env(:hyperliquid, :ws_user_linger_ms, 15_000)
+  end
+
+  @doc """
+  Returns the client-side outbound WebSocket message budget per second.
+
+  The server caps inbound messages at ~100/s per IP; the default leaves
+  headroom.
+
+  ## Configuration
+
+      config :hyperliquid,
+        ws_max_messages_per_second: 50
+  """
+  def ws_max_messages_per_second do
+    Application.get_env(:hyperliquid, :ws_max_messages_per_second, 50)
+  end
+
+  @doc """
+  Returns how many subscribe frames a reconnecting connection replays per batch.
+
+  ## Configuration
+
+      config :hyperliquid,
+        ws_resubscribe_batch_size: 20
+  """
+  def ws_resubscribe_batch_size do
+    Application.get_env(:hyperliquid, :ws_resubscribe_batch_size, 20)
   end
 
   @doc """
@@ -564,4 +745,6 @@ defmodule Hyperliquid.Config do
   def node_info_enabled? do
     Application.get_env(:hyperliquid, :enable_node_info, false) == true
   end
+
+  defp get_env(key), do: Application.get_env(:hyperliquid, key)
 end

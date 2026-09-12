@@ -2,6 +2,9 @@ defmodule Hyperliquid.Api.Subscription.ClearinghouseState do
   @moduledoc """
   WebSocket subscription for user's clearinghouse state.
 
+  `dex` is optional and defaults to `""` (the main dex), matching
+  `@nktkas/hyperliquid` - the response always echoes the dex back.
+
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions
   """
 

@@ -10,12 +10,18 @@ defmodule Hyperliquid.Api.Info.MarginTable do
 
       {:ok, table} = MarginTable.request(0)
       max_lev = MarginTable.max_leverage_for_size(table, 100000.0)
+
+      # HIP-3 builder perp dex
+      {:ok, table} = MarginTable.request(0, dex: "test")
   """
 
   use Hyperliquid.Api.Endpoint,
     type: :info,
     request_type: "marginTable",
     params: [:id],
+    # `dex` is optional; "" (or omitted) means the main dex. Added upstream in
+    # @nktkas/hyperliquid v0.33.3 (249260c).
+    optional_params: [:dex],
     rate_limit_cost: 1,
     doc: "Retrieve margin table details",
     returns: "Margin requirements and leverage tiers",

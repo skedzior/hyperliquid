@@ -34,6 +34,8 @@ defmodule Hyperliquid.MixProject do
       links: %{"GitHub" => @source_url},
       files: ~w(
         lib
+        docs
+        priv/repo/migrations
         native/signer/src
         native/signer/Cargo.toml
         native/signer/Cargo.lock
@@ -80,10 +82,12 @@ defmodule Hyperliquid.MixProject do
 
   defp docs do
     [
-      extras: [
-        "CHANGELOG.md": [title: "Changelog"],
-        "LICENSE.md": [title: "License"],
-        "README.md": [title: "Overview"]
+      extras: extras(),
+      groups_for_extras: [
+        "Getting started": ~r{docs/getting-started/},
+        Guides: ~r{docs/guides/},
+        "API reference": ~r{docs/api-reference/},
+        Advanced: ~r{docs/advanced/}
       ],
       main: "readme",
       source_url: @source_url,
@@ -91,13 +95,43 @@ defmodule Hyperliquid.MixProject do
     ]
   end
 
+  # Ship the docs/ tree to hexdocs. Files are picked up from disk so a new
+  # guide only has to be added to docs/, not here.
+  defp extras do
+    # docs/README.md and docs/SUMMARY.md are GitBook navigation artifacts; the
+    # root README.md is already the hexdocs main page and a second README.md
+    # would collide with it.
+    guides =
+      "docs/**/*.md"
+      |> Path.wildcard()
+      |> Enum.reject(&(Path.basename(&1) in ["README.md", "SUMMARY.md"]))
+      |> Enum.sort()
+
+    [
+      "README.md": [title: "Overview"],
+      "CHANGELOG.md": [title: "Changelog"],
+      "LICENSE.md": [title: "License"]
+    ] ++ guides
+  end
+
   defp aliases do
     [
       setup: ["deps.get"] ++ if_ecto(["ecto.setup"]),
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
-      test: if_ecto(["ecto.create --quiet", "ecto.migrate --quiet"]) ++ ["test"]
+      # `mix test` must run offline. The database is only set up when the
+      # suite is explicitly opted in with HYPERLIQUID_TEST_DB=1, which is also
+      # the switch test_helper.exs uses to include :requires_database tests.
+      test: test_db_setup() ++ ["test"]
     ]
+  end
+
+  defp test_db_setup do
+    if System.get_env("HYPERLIQUID_TEST_DB") == "1" do
+      if_ecto(["ecto.create --quiet", "ecto.migrate --quiet"])
+    else
+      []
+    end
   end
 
   defp if_ecto(tasks) do

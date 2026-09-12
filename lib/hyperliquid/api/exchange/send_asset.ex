@@ -2,12 +2,30 @@ defmodule Hyperliquid.Api.Exchange.SendAsset do
   @moduledoc """
   Transfer tokens between different perp DEXs, spot balance, users, and/or sub-accounts.
 
+  `sendAsset` is a **user-signed** (EIP-712) action, signed under
+  `HyperliquidTransaction:SendAsset` with the fields `hyperliquidChain`,
+  `destination`, `sourceDex`, `destinationDex`, `token`, `amount`,
+  `fromSubAccount`, `nonce`, matching `@nktkas/hyperliquid` (`SendAssetTypes`)
+  and `hyperliquid-python-sdk` (`SEND_ASSET_SIGN_TYPES`).
+
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint#send-asset
   """
 
-  alias Hyperliquid.{Config, Signer}
-  alias Hyperliquid.Api.Exchange.KeyUtils
+  alias Hyperliquid.Api.Exchange.{KeyUtils, UserSigned}
+  alias Hyperliquid.Config
   alias Hyperliquid.Transport.Http
+  alias Hyperliquid.Utils
+
+  @primary_type "HyperliquidTransaction:SendAsset"
+  @fields [
+    {"destination", "string"},
+    {"sourceDex", "string"},
+    {"destinationDex", "string"},
+    {"token", "string"},
+    {"amount", "string"},
+    {"fromSubAccount", "string"},
+    {"nonce", "uint64"}
+  ]
 
   @doc """
   Transfer tokens between different perp DEXs, spot balance, users, and/or sub-accounts.
@@ -53,12 +71,68 @@ defmodule Hyperliquid.Api.Exchange.SendAsset do
         opts \\ []
       ) do
     private_key = KeyUtils.resolve_and_validate!(opts)
-    time = generate_nonce()
+    time = Utils.generate_nonce()
     is_mainnet = Config.mainnet?()
     from_sub_account = Keyword.get(opts, :from_sub_account, "")
 
-    sig =
-      sign_send_asset(
+    with {:ok, signature} <-
+           sign(
+             private_key,
+             destination,
+             source_dex,
+             destination_dex,
+             token,
+             amount,
+             from_sub_account,
+             time,
+             is_mainnet
+           ) do
+      action =
+        build_action(
+          destination,
+          source_dex,
+          destination_dex,
+          token,
+          amount,
+          from_sub_account,
+          time,
+          is_mainnet
+        )
+
+      Http.user_signed_request(action, signature, time, opts)
+    end
+  end
+
+  @doc """
+  The wire action, in the canonical field order
+  (`type`, `signatureChainId`, `hyperliquidChain`, then the signed fields).
+  """
+  def build_action(
+        destination,
+        source_dex,
+        destination_dex,
+        token,
+        amount,
+        from_sub_account,
+        nonce,
+        is_mainnet \\ nil
+      ) do
+    Jason.OrderedObject.new([
+      {:type, "sendAsset"},
+      {:signatureChainId, UserSigned.signature_chain_id()},
+      {:hyperliquidChain, UserSigned.hyperliquid_chain(is_mainnet)},
+      {:destination, destination},
+      {:sourceDex, source_dex},
+      {:destinationDex, destination_dex},
+      {:token, token},
+      {:amount, amount},
+      {:fromSubAccount, from_sub_account},
+      {:nonce, nonce}
+    ])
+  end
+
+  @doc false
+  def sign(
         private_key,
         destination,
         source_dex,
@@ -66,97 +140,23 @@ defmodule Hyperliquid.Api.Exchange.SendAsset do
         token,
         amount,
         from_sub_account,
-        time,
-        is_mainnet
-      )
-
-    # IMPORTANT: Use OrderedObject for correct field order in hash calculation
-    # Field order: type, signatureChainId, hyperliquidChain, destination, sourceDex,
-    #              destinationDex, token, amount, fromSubAccount, nonce
-    action =
-      Jason.OrderedObject.new([
-        {:type, "sendAsset"},
-        {:signatureChainId, Hyperliquid.Config.signature_chain_id_hex()},
-        {:hyperliquidChain, if(is_mainnet, do: "Mainnet", else: "Testnet")},
-        {:destination, destination},
-        {:sourceDex, source_dex},
-        {:destinationDex, destination_dex},
-        {:token, token},
-        {:amount, amount},
-        {:fromSubAccount, from_sub_account},
-        {:nonce, time}
-      ])
-
-    signature = %{r: sig["r"], s: sig["s"], v: sig["v"]}
-
-    Http.user_signed_request(action, signature, time, opts)
-  end
-
-  defp sign_send_asset(
-         private_key,
-         destination,
-         source_dex,
-         destination_dex,
-         token,
-         amount,
-         from_sub_account,
-         nonce,
-         is_mainnet
-       ) do
-    # EIP-712 domain — Hyperliquid uses chainId 42161 (Arbitrum One) for BOTH
-    # mainnet and testnet. The domain name must be "HyperliquidSignTransaction".
-    domain = %{
-      name: "HyperliquidSignTransaction",
-      version: "1",
-      chainId: Hyperliquid.Config.signature_chain_id(),
-      verifyingContract: "0x0000000000000000000000000000000000000000"
-    }
-
-    # EIP-712 types for SendAsset
-    types = %{
-      "EIP712Domain" => [
-        %{name: "name", type: "string"},
-        %{name: "version", type: "string"},
-        %{name: "chainId", type: "uint256"},
-        %{name: "verifyingContract", type: "address"}
+        nonce,
+        is_mainnet \\ nil
+      ) do
+    UserSigned.sign(
+      private_key,
+      @primary_type,
+      @fields,
+      [
+        {"destination", destination},
+        {"sourceDex", source_dex},
+        {"destinationDex", destination_dex},
+        {"token", token},
+        {"amount", amount},
+        {"fromSubAccount", from_sub_account},
+        {"nonce", nonce}
       ],
-      "HyperliquidTransaction:SendAsset" => [
-        %{name: "hyperliquidChain", type: "string"},
-        %{name: "destination", type: "string"},
-        %{name: "sourceDex", type: "string"},
-        %{name: "destinationDex", type: "string"},
-        %{name: "token", type: "string"},
-        %{name: "amount", type: "string"},
-        %{name: "fromSubAccount", type: "string"},
-        %{name: "nonce", type: "uint64"}
-      ]
-    }
-
-    # Message to sign
-    message = %{
-      hyperliquidChain: if(is_mainnet, do: "Mainnet", else: "Testnet"),
-      destination: destination,
-      sourceDex: source_dex,
-      destinationDex: destination_dex,
-      token: token,
-      amount: amount,
-      fromSubAccount: from_sub_account,
-      nonce: nonce
-    }
-
-    # Convert to JSON for signing
-    domain_json = Jason.encode!(domain)
-    types_json = Jason.encode!(types)
-    message_json = Jason.encode!(message)
-    primary_type = "HyperliquidTransaction:SendAsset"
-
-    Signer.sign_typed_data(private_key, domain_json, types_json, message_json, primary_type)
-  end
-
-  # Hyperliquid uses signatureChainId 42161 (Arbitrum One) for BOTH mainnet and testnet.
-  # The network distinction is conveyed via the hyperliquidChain field ("Mainnet"/"Testnet").
-
-  defp generate_nonce do
-    System.system_time(:millisecond)
+      is_mainnet
+    )
   end
 end

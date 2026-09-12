@@ -8,27 +8,46 @@ defmodule Hyperliquid.Telemetry do
 
   * `[:hyperliquid, :api, :request, :start]` — Info API request started
     * Measurements: `%{system_time: integer}`
-    * Metadata: `%{module: module, request_type: String.t()}`
+    * Metadata: `%{module: module, endpoint: String.t(), request_type: String.t(), type: atom, params: map}`
 
   * `[:hyperliquid, :api, :request, :stop]` — Info API request completed
     * Measurements: `%{duration: native_time}`
-    * Metadata: `%{module: module, request_type: String.t(), result: :ok}`
+    * Metadata: the `:start` metadata plus `%{result: :ok}`
 
   * `[:hyperliquid, :api, :request, :exception]` — Info API request failed
     * Measurements: `%{duration: native_time}`
-    * Metadata: `%{module: module, request_type: String.t(), result: :error, reason: term}`
+    * Metadata: the `:start` metadata plus `%{result: :error, reason: term}`
 
   * `[:hyperliquid, :api, :exchange, :start]` — Exchange API request started
     * Measurements: `%{system_time: integer}`
-    * Metadata: `%{module: module, action_type: String.t()}`
+    * Metadata: `%{module: module, endpoint: String.t(), action_type: String.t(), type: :exchange, signing: :l1 | :user_signed}`
 
   * `[:hyperliquid, :api, :exchange, :stop]` — Exchange API request completed
     * Measurements: `%{duration: native_time}`
-    * Metadata: `%{module: module, action_type: String.t(), result: :ok}`
+    * Metadata: the `:start` metadata plus `%{result: :ok}`
 
   * `[:hyperliquid, :api, :exchange, :exception]` — Exchange API request failed
     * Measurements: `%{duration: native_time}`
-    * Metadata: `%{module: module, action_type: String.t(), result: :error, reason: term}`
+    * Metadata: the `:start` metadata plus `%{result: :error, reason: term}`
+
+  ## HTTP Transport Events
+
+  Emitted by `Hyperliquid.Transport.Http` for every HTTP call, including calls
+  made directly (e.g. by `Hyperliquid.Cache`) that bypass the endpoint DSL.
+  Emitted via `:telemetry.span/3`, so a `:stop` or `:exception` always follows a
+  `:start`.
+
+  * `[:hyperliquid, :http, :request, :start]` — HTTP request started
+    * Measurements: `%{system_time: integer, monotonic_time: integer}`
+    * Metadata: `%{module: module, method: :get | :post, url: String.t(), request_type: :info | :exchange}`
+
+  * `[:hyperliquid, :http, :request, :stop]` — HTTP request completed
+    * Measurements: `%{duration: native_time, monotonic_time: integer}`
+    * Metadata: `%{module: module, method: atom, url: String.t(), request_type: atom, result: :ok | :error, reason: term | nil}`
+
+  * `[:hyperliquid, :http, :request, :exception]` — the request raised
+    * Measurements: `%{duration: native_time, monotonic_time: integer}`
+    * Metadata: `%{module: module, method: atom, url: String.t(), request_type: atom, kind: atom, reason: term, stacktrace: list}`
 
   ## WebSocket Events
 
@@ -93,8 +112,29 @@ defmodule Hyperliquid.Telemetry do
   ## Storage Events
 
   * `[:hyperliquid, :storage, :flush, :stop]` — Buffer flushed
-    * Measurements: `%{record_count: integer, duration: native_time}`
+    * Measurements: `%{record_count: integer, duration: native_time, failed_batches: integer}`
     * Metadata: `%{}`
+
+  * `[:hyperliquid, :storage, :flush, :exception]` — a flush raised
+    * Measurements: `%{record_count: integer}`
+    * Metadata: `%{module: module, kind: atom, reason: term}`
+
+  * `[:hyperliquid, :storage, :dropped]` — events dropped by backpressure
+    * Measurements: `%{count: integer}`
+    * Metadata: `%{module: module, reason: atom}` — `:writer_down`,
+      `:mailbox_full`, `:buffer_full`, `:retries_exhausted`, `:retry_queue_full`
+
+  * `[:hyperliquid, :storage, :retry]` — a failed batch is being retried
+    * Measurements: `%{record_count: integer, attempt: integer, backoff: integer}`
+    * Metadata: `%{module: module}`
+
+  * `[:hyperliquid, :storage, :write, :error]` — a batch write failed
+    * Measurements: `%{record_count: integer, attempt: integer}`
+    * Metadata: `%{module: module, reason: term}`
+
+  > `[:hyperliquid, :cache, :init, :stop]`, `[:hyperliquid, :cache, :refresh, :stop]`
+  > and `[:hyperliquid, :storage, :flush, :stop]` are emitted without a matching
+  > `:start`; they are one-shot completion events, not spans.
 
   ## Quick Setup
 
@@ -133,6 +173,9 @@ defmodule Hyperliquid.Telemetry do
       [:hyperliquid, :api, :exchange, :start],
       [:hyperliquid, :api, :exchange, :stop],
       [:hyperliquid, :api, :exchange, :exception],
+      [:hyperliquid, :http, :request, :start],
+      [:hyperliquid, :http, :request, :stop],
+      [:hyperliquid, :http, :request, :exception],
       [:hyperliquid, :ws, :connect, :start],
       [:hyperliquid, :ws, :connect, :stop],
       [:hyperliquid, :ws, :connect, :exception],
@@ -146,7 +189,11 @@ defmodule Hyperliquid.Telemetry do
       [:hyperliquid, :rpc, :request, :start],
       [:hyperliquid, :rpc, :request, :stop],
       [:hyperliquid, :rpc, :request, :exception],
-      [:hyperliquid, :storage, :flush, :stop]
+      [:hyperliquid, :storage, :flush, :stop],
+      [:hyperliquid, :storage, :flush, :exception],
+      [:hyperliquid, :storage, :dropped],
+      [:hyperliquid, :storage, :retry],
+      [:hyperliquid, :storage, :write, :error]
     ]
 
     :telemetry.attach_many(

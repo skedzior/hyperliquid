@@ -5,15 +5,16 @@ defmodule Hyperliquid.Api.Exchange.VaultDistribute do
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
-  alias Hyperliquid.{Config, Signer}
+  alias Hyperliquid.Config
   alias Hyperliquid.Transport.Http
 
   @doc """
   Distribute profits to vault followers.
 
   ## Parameters
-    - `private_key`: Private key for signing (hex string)
     - `vault_address`: Vault address
+    - `usd`: Amount to distribute in **micro-USD as an unsigned integer**
+      (`float * 1e6`). `0` closes the vault.
     - `opts`: Optional parameters
 
   ## Returns
@@ -22,16 +23,17 @@ defmodule Hyperliquid.Api.Exchange.VaultDistribute do
 
   ## Examples
 
-      {:ok, result} = VaultDistribute.request(private_key, "0x...")
+      {:ok, result} = VaultDistribute.request("0x...", 10 * 1_000_000)
   """
-  def request(vault_address, opts \\ []) do
+  def request(vault_address, usd, opts \\ []) when is_integer(usd) and usd >= 0 do
     private_key = Hyperliquid.Api.Exchange.KeyUtils.resolve_private_key!(opts)
     nonce = generate_nonce()
     expires_after = Config.expires_after()
 
     action = %{
       type: "vaultDistribute",
-      vaultAddress: vault_address
+      vaultAddress: vault_address,
+      usd: usd
     }
 
     with {:ok, action_json} <- Hyperliquid.Api.ActionEncoder.encode(action),
@@ -41,21 +43,16 @@ defmodule Hyperliquid.Api.Exchange.VaultDistribute do
   end
 
   defp sign_action(private_key, action_json, nonce, vault_address, expires_after) do
-    is_mainnet = Config.mainnet?()
-
-    connection_id =
-      Signer.compute_connection_id_ex(action_json, nonce, vault_address, expires_after)
-
-    case Signer.sign_l1_action(private_key, connection_id, is_mainnet) do
-      %{"r" => r, "s" => s, "v" => v} ->
-        {:ok, %{r: r, s: s, v: v}}
-
-      error ->
-        {:error, {:signing_error, error}}
-    end
+    Hyperliquid.Api.Exchange.Action.sign_json(
+      private_key,
+      action_json,
+      nonce,
+      vault_address,
+      expires_after
+    )
   end
 
   defp generate_nonce do
-    System.system_time(:millisecond)
+    Hyperliquid.Utils.generate_nonce()
   end
 end

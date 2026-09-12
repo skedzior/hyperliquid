@@ -5,7 +5,7 @@ defmodule Hyperliquid.Api.Exchange.Cancel do
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
-  alias Hyperliquid.{Config, Signer}
+  alias Hyperliquid.Config
   alias Hyperliquid.Transport.Http
 
   # ===================== Types =====================
@@ -94,7 +94,7 @@ defmodule Hyperliquid.Api.Exchange.Cancel do
     private_key = Hyperliquid.Api.Exchange.KeyUtils.resolve_private_key!(opts)
     vault_address = Keyword.get(opts, :vault_address)
 
-    action = build_action(cancels)
+    action = build_action(cancels, Keyword.get(opts, :fast, false))
     nonce = generate_nonce()
     expires_after = Config.expires_after()
 
@@ -109,8 +109,13 @@ defmodule Hyperliquid.Api.Exchange.Cancel do
 
   # ===================== Action Building =====================
 
-  defp build_action(cancels) do
-    %{
+  @doc false
+  # Exposed for tests: builds the action without signing or performing IO.
+  # `fast?` emits the optional `f: true` flag, which prioritises the cancel in
+  # the mempool. The flag is omitted entirely when false - an extra key would
+  # change the L1 action hash.
+  def build_action(cancels, fast? \\ false) do
+    action = %{
       type: "cancel",
       cancels:
         Enum.map(cancels, fn c ->
@@ -120,30 +125,23 @@ defmodule Hyperliquid.Api.Exchange.Cancel do
           }
         end)
     }
+
+    if fast?, do: Map.put(action, :f, true), else: action
   end
 
   # ===================== Signing =====================
 
   defp sign_action(private_key, action_json, nonce, vault_address, expires_after) do
-    is_mainnet = Config.mainnet?()
-
-    case Signer.sign_exchange_action_ex(
-           private_key,
-           action_json,
-           nonce,
-           is_mainnet,
-           vault_address,
-           expires_after
-         ) do
-      %{"r" => r, "s" => s, "v" => v} ->
-        {:ok, %{r: r, s: s, v: v}}
-
-      error ->
-        {:error, {:signing_error, error}}
-    end
+    Hyperliquid.Api.Exchange.Action.sign_json(
+      private_key,
+      action_json,
+      nonce,
+      vault_address,
+      expires_after
+    )
   end
 
   defp generate_nonce do
-    System.system_time(:millisecond)
+    Hyperliquid.Utils.generate_nonce()
   end
 end

@@ -8,17 +8,9 @@ defmodule Hyperliquid.Api.Exchange.ApproveAgent do
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
-  alias Hyperliquid.{Config, Signer}
   alias Hyperliquid.Api.Exchange.{KeyUtils, UserSigned}
+  alias Hyperliquid.{Config, Signer}
   alias Hyperliquid.Transport.Http
-
-  @primary_type "HyperliquidTransaction:ApproveAgent"
-  @types [
-    %{name: "hyperliquidChain", type: "string"},
-    %{name: "agentAddress", type: "address"},
-    %{name: "agentName", type: "string"},
-    %{name: "nonce", type: "uint64"}
-  ]
 
   # ===================== Types =====================
 
@@ -74,9 +66,12 @@ defmodule Hyperliquid.Api.Exchange.ApproveAgent do
     agent_address = Signer.to_checksum_address(agent_address)
 
     with {:ok, signature} <- sign_approve(private_key, agent_address, agent_name, nonce) do
-      action = build_action(agent_address, agent_name, nonce)
-      # L1 actions don't use expires_after
-      Http.exchange_request(action, signature, nonce, nil, nil)
+      Http.user_signed_request(
+        build_action(agent_address, agent_name, nonce),
+        signature,
+        nonce,
+        opts
+      )
     end
   end
 
@@ -85,37 +80,33 @@ defmodule Hyperliquid.Api.Exchange.ApproveAgent do
   defp build_action(agent_address, agent_name, nonce) do
     is_mainnet = Config.mainnet?()
 
-    action = %{
-      type: "approveAgent",
-      hyperliquidChain: if(is_mainnet, do: "Mainnet", else: "Testnet"),
-      signatureChainId: UserSigned.signature_chain_id(),
-      agentAddress: agent_address,
-      nonce: nonce
-    }
+    fields = [
+      {:type, "approveAgent"},
+      {:signatureChainId, UserSigned.signature_chain_id()},
+      {:hyperliquidChain, UserSigned.hyperliquid_chain(is_mainnet)},
+      {:agentAddress, agent_address}
+    ]
 
-    if agent_name do
-      Map.put(action, :agentName, agent_name)
-    else
-      action
-    end
+    fields = if agent_name, do: fields ++ [{:agentName, agent_name}], else: fields
+
+    Jason.OrderedObject.new(fields ++ [{:nonce, nonce}])
   end
 
   # ===================== Signing =====================
 
   defp sign_approve(private_key, agent_address, agent_name, nonce) do
-    message = %{
-      hyperliquidChain: UserSigned.hyperliquid_chain(),
-      agentAddress: agent_address,
-      # An unnamed agent signs over the empty string, which is also how the NIF
-      # decoded a nil name.
-      agentName: agent_name || "",
-      nonce: nonce
-    }
-
-    UserSigned.sign(private_key, @primary_type, @types, message)
+    # A missing agentName hashes as the empty string (matching nktkas and the
+    # Python SDK), but is omitted from the wire action.
+    UserSigned.sign(
+      private_key,
+      "HyperliquidTransaction:ApproveAgent",
+      [{"agentAddress", "address"}, {"agentName", "string"}, {"nonce", "uint64"}],
+      [{"agentAddress", agent_address}, {"agentName", agent_name || ""}, {"nonce", nonce}],
+      Config.mainnet?()
+    )
   end
 
   defp generate_nonce do
-    System.system_time(:millisecond)
+    Hyperliquid.Utils.generate_nonce()
   end
 end

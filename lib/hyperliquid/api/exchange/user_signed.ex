@@ -32,9 +32,16 @@ defmodule Hyperliquid.Api.Exchange.UserSigned do
 
   @doc """
   `"Mainnet"` or `"Testnet"`, the field that actually selects the network.
+
+  Takes the network from `Hyperliquid.Config.mainnet?/0` unless an explicit
+  boolean is given, so a caller that has already read the config can pass it
+  through rather than reading it twice.
   """
-  @spec hyperliquid_chain() :: String.t()
-  def hyperliquid_chain, do: if(Config.mainnet?(), do: "Mainnet", else: "Testnet")
+  @spec hyperliquid_chain(boolean() | nil) :: String.t()
+  def hyperliquid_chain(is_mainnet \\ nil)
+  def hyperliquid_chain(nil), do: hyperliquid_chain(Config.mainnet?())
+  def hyperliquid_chain(true), do: "Mainnet"
+  def hyperliquid_chain(false), do: "Testnet"
 
   @doc """
   The `signatureChainId` field to send in the action body.
@@ -73,4 +80,46 @@ defmodule Hyperliquid.Api.Exchange.UserSigned do
       end
     end
   end
+
+  @doc """
+  Sign a user-signed action from its field list and values.
+
+  A convenience wrapper over `sign/4` for the common case: every Hyperliquid
+  user-signed struct starts with `hyperliquidChain`, so it is prepended to both
+  the type and the message here and cannot drift between them.
+
+    * `fields` — the signed struct's fields **after** `hyperliquidChain`, in
+      EIP-712 declaration order, as `[{name, solidity_type}]`
+    * `message` — the matching values as a map or keyword list, without
+      `hyperliquidChain`
+    * `is_mainnet` — `nil` to read `Hyperliquid.Config.mainnet?/0`
+  """
+  @spec sign(String.t(), String.t(), [{String.t(), String.t()}], Enumerable.t(), boolean() | nil) ::
+          {:ok, map()} | {:error, term()}
+  def sign(private_key, primary_type, fields, message, is_mainnet) do
+    types =
+      [%{name: "hyperliquidChain", type: "string"}] ++
+        Enum.map(fields, fn {name, type} -> %{name: name, type: type} end)
+
+    message =
+      message
+      |> Enum.map(fn {k, v} -> {to_string(k), normalize_hex(v)} end)
+      |> Map.new()
+      |> Map.put("hyperliquidChain", hyperliquid_chain(is_mainnet))
+
+    sign(private_key, primary_type, types, message)
+  end
+
+  # Hyperliquid lower-cases every `0x…` hex string before it re-derives the
+  # signed payload, and fields such as `destination` are typed `string` in the
+  # EIP-712 struct, so their case is part of the hash. Mirrors the same
+  # normalisation applied to L1 actions in `Hyperliquid.Api.Exchange.Action`
+  # and `@nktkas/hyperliquid`'s `Hex` schema.
+  @hex_string ~r/^0x[0-9a-fA-F]+$/
+
+  defp normalize_hex(value) when is_binary(value) do
+    if Regex.match?(@hex_string, value), do: String.downcase(value), else: value
+  end
+
+  defp normalize_hex(value), do: value
 end

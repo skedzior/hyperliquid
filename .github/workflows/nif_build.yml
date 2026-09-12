@@ -22,6 +22,8 @@ jobs:
           - { target: x86_64-apple-darwin, os: macos-14 }
           - { target: aarch64-unknown-linux-gnu, os: ubuntu-22.04, use-cross: true }
           - { target: x86_64-unknown-linux-gnu, os: ubuntu-22.04 }
+          - { target: aarch64-unknown-linux-musl, os: ubuntu-22.04, use-cross: true }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-22.04, use-cross: true }
           - { target: x86_64-pc-windows-gnu, os: windows-2022 }
           - { target: x86_64-pc-windows-msvc, os: windows-2022 }
 
@@ -53,3 +55,65 @@ jobs:
         with:
           files: |
             *signer_nif-*.tar.gz
+
+  # Aggregate gate. `fail-fast: false` above means a partial matrix still
+  # produces a release that *looks* complete, so refuse to call the build good
+  # unless every job succeeded and the committed checksum file matches the tag.
+  verify_release:
+    name: Verify release artifacts
+    needs: build_release
+    if: always()
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Fail if any NIF build failed
+        if: needs.build_release.result != 'success'
+        run: |
+          echo "::error::One or more NIF matrix jobs did not succeed (${{ needs.build_release.result }})."
+          echo "The GitHub release is incomplete; do not publish to Hex."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17.3"
+          otp-version: "27.1"
+          # builds.hex.pm now serves a Let's Encrypt "Root YR" chain whose root
+          # carries an extendedKeyUsage; OTP's public_key rejects it with
+          # `key_usage_mismatch`, so `mix local.rebar` dies before any step
+          # runs. Give setup-beam a second mirror to fall back to.
+          hexpm-mirrors: |
+            https://builds.hex.pm
+            https://cdn.jsdelivr.net/hex
+
+      # Asserts the committed checksum file covers the full matrix and is for
+      # the version in mix.exs. Regenerate it with
+      # `mix rustler_precompiled.download Hyperliquid.Signer --all` and commit
+      # before publishing.
+      # Bootstrap escape hatch. The checksum file can only be generated *from*
+      # this very build (`mix rustler_precompiled.download --all` downloads the
+      # release assets), so on the FIRST tag of a new version it is necessarily
+      # still describing the previous version and this gate could never pass.
+      # Detect that case and skip, rather than failing a build that is fine.
+      # The strict check is not lost: ci.yml runs the same script on every push
+      # and PR, so the regenerated file still has to land before merge/publish.
+      - name: Does the checksum file already cover this tag?
+        id: checksum_state
+        shell: bash
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          if grep -q -- "-v${version}-nif-" checksum-Elixir.Hyperliquid.Signer.exs; then
+            echo "covers=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "covers=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Verify NIF checksum file
+        if: steps.checksum_state.outputs.covers == 'true'
+        run: elixir scripts/verify_nif_checksums.exs
+
+      - name: Checksum file not yet generated for this tag
+        if: steps.checksum_state.outputs.covers != 'true'
+        run: |
+          echo "::notice::checksum-Elixir.Hyperliquid.Signer.exs has no entries for ${GITHUB_REF_NAME} — this is the first build of this version, so the file cannot exist yet. Skipping the checksum gate. Regenerate it now with 'mix rustler_precompiled.download Hyperliquid.Signer --all --print', commit it, and let ci.yml enforce the strict check."

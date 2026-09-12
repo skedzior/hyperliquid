@@ -2,19 +2,30 @@ defmodule Hyperliquid.Api.Exchange.CDeposit do
   @moduledoc """
   Deposit native token from spot account into staking balance.
 
+  `cDeposit` is a **user-signed** (EIP-712) action, signed under
+  `HyperliquidTransaction:CDeposit` with the fields `hyperliquidChain`, `wei`
+  (uint64), `nonce` (uint64), matching `@nktkas/hyperliquid` (`CDepositTypes`).
+
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
-  alias Hyperliquid.{Config, Signer}
+  alias Hyperliquid.Api.Exchange.{KeyUtils, UserSigned}
+  alias Hyperliquid.Config
   alias Hyperliquid.Transport.Http
+  alias Hyperliquid.Utils
+
+  @primary_type "HyperliquidTransaction:CDeposit"
+  @fields [{"wei", "uint64"}, {"nonce", "uint64"}]
 
   @doc """
   Deposit native token from spot account into staking balance.
 
   ## Parameters
-    - `private_key`: Private key for signing (hex string)
     - `wei`: Amount in wei to deposit (float * 1e8)
     - `opts`: Optional parameters
+
+  ## Options
+    - `:private_key` - Private key for signing (falls back to config)
 
   ## Returns
     - `{:ok, response}` - Deposit result
@@ -23,61 +34,40 @@ defmodule Hyperliquid.Api.Exchange.CDeposit do
   ## Examples
 
       # Deposit 1 HYPE (1 * 1e8 = 100000000)
-      {:ok, result} = CDeposit.request(private_key, 100_000_000)
+      {:ok, result} = CDeposit.request(100_000_000, private_key: private_key)
   """
   def request(wei, opts \\ []) do
-    private_key = Hyperliquid.Api.Exchange.KeyUtils.resolve_private_key!(opts)
-    nonce = generate_nonce()
+    private_key = KeyUtils.resolve_private_key!(opts)
+    nonce = Utils.generate_nonce()
     is_mainnet = Config.mainnet?()
 
-    domain = %{
-      name: "HyperliquidSignTransaction",
-      version: "1",
-      chainId: Hyperliquid.Config.signature_chain_id(),
-      verifyingContract: "0x0000000000000000000000000000000000000000"
-    }
-
-    types = %{
-      "HyperliquidTransaction:CDeposit" => [
-        %{name: "hyperliquidChain", type: "string"},
-        %{name: "wei", type: "uint64"},
-        %{name: "nonce", type: "uint64"}
-      ]
-    }
-
-    message = %{
-      hyperliquidChain: if(is_mainnet, do: "Mainnet", else: "Testnet"),
-      wei: wei,
-      nonce: nonce
-    }
-
-    with {:ok, domain_json} <- Jason.encode(domain),
-         {:ok, types_json} <- Jason.encode(types),
-         {:ok, message_json} <- Jason.encode(message) do
-      sig =
-        Signer.sign_typed_data(
-          private_key,
-          domain_json,
-          types_json,
-          message_json,
-          "HyperliquidTransaction:CDeposit"
-        )
-
-      action = %{
-        type: "cDeposit",
-        hyperliquidChain: if(is_mainnet, do: "Mainnet", else: "Testnet"),
-        signatureChainId: Hyperliquid.Config.signature_chain_id_hex(),
-        wei: wei,
-        nonce: nonce
-      }
-
-      signature = %{r: sig["r"], s: sig["s"], v: sig["v"]}
-
-      Http.user_signed_request(action, signature, nonce, opts)
+    with {:ok, signature} <- sign(private_key, wei, nonce, is_mainnet) do
+      Http.user_signed_request(build_action(wei, nonce, is_mainnet), signature, nonce, opts)
     end
   end
 
-  defp generate_nonce do
-    System.system_time(:millisecond)
+  @doc """
+  The wire action, in the canonical field order
+  (`type`, `signatureChainId`, `hyperliquidChain`, `wei`, `nonce`).
+  """
+  def build_action(wei, nonce, is_mainnet \\ nil) do
+    Jason.OrderedObject.new([
+      {:type, "cDeposit"},
+      {:signatureChainId, UserSigned.signature_chain_id()},
+      {:hyperliquidChain, UserSigned.hyperliquid_chain(is_mainnet)},
+      {:wei, wei},
+      {:nonce, nonce}
+    ])
+  end
+
+  @doc false
+  def sign(private_key, wei, nonce, is_mainnet \\ nil) do
+    UserSigned.sign(
+      private_key,
+      @primary_type,
+      @fields,
+      [{"wei", wei}, {"nonce", nonce}],
+      is_mainnet
+    )
   end
 end

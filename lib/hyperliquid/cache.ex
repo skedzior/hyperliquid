@@ -40,7 +40,34 @@ defmodule Hyperliquid.Cache do
 
   @cache :hyperliquid
 
-  # Refresh interval for periodic cache refresh (5 minutes)
+  # Exchange metadata lives in its own Cachex instance. `:hyperliquid` carries
+  # the WebSocket firehose written by `Storage.Writer` and is size-limited with
+  # LRW eviction; metadata must never be evicted by it.
+  @meta_cache :hyperliquid_meta
+
+  @meta_keys [
+    :all_mids,
+    :all_mids_updated_at,
+    :asset_map,
+    :asset_to_price_decimals,
+    :asset_to_sz_decimals,
+    :ctxs,
+    :decimal_map,
+    :dex_offsets,
+    :margin_tables,
+    :perp_meta,
+    :perp_meta_by_dex,
+    :perps,
+    :spot_ctxs,
+    :spot_meta,
+    :spot_pair_asset_map,
+    :spot_pair_decimals,
+    :spot_pair_id_map,
+    :spot_pairs,
+    :tokens
+  ]
+
+  # Fallback refresh interval when Config is unavailable (5 minutes)
   @refresh_interval 300_000
 
   # ===================== Initialization =====================
@@ -99,11 +126,25 @@ defmodule Hyperliquid.Cache do
       {:outcome_meta, fn -> Http.outcome_meta(raw: true) end}
     ]
 
+    # Fetched concurrently: four serial calls (plus one per builder DEX) blew
+    # past the 5s GenServer.call timeout of Warmer.initialized?/0.
     results =
-      Enum.map(fetches, fn {key, fetch_fn} ->
-        result = fetch_fn.()
-        debug("Fetched #{key}", %{success: match?({:ok, _}, result)})
-        {key, result}
+      fetches
+      |> Task.async_stream(
+        fn {key, fetch_fn} ->
+          result = fetch_fn.()
+          debug("Fetched #{key}", %{success: match?({:ok, _}, result)})
+          {key, result}
+        end,
+        max_concurrency: length(fetches),
+        timeout: 60_000,
+        on_timeout: :kill_task,
+        ordered: true
+      )
+      |> Enum.zip(fetches)
+      |> Enum.map(fn
+        {{:ok, {key, result}}, _fetch} -> {key, result}
+        {{:exit, reason}, {key, _fetch_fn}} -> {key, {:error, reason}}
       end)
 
     {successes, failures} =
@@ -181,18 +222,25 @@ defmodule Hyperliquid.Cache do
     # Process meta if available
     {perp_asset_map, perp_decimal_map, base_meta, ctxs, dex_offsets, perp_meta_by_dex,
      margin_tables} =
-      if meta_data && perp_dexs_data do
+      if meta_data do
         [base_meta, ctxs] = meta_data
 
         debug("Processing perp meta", %{
           universe_count: length(Map.get(base_meta, "universe", []))
         })
 
-        # Discover builder-deployed perp DEXs and compute offsets
+        # Discover builder-deployed perp DEXs and compute offsets.
+        # A failed perpDexs fetch degrades to "no builder DEXs" rather than
+        # discarding base perp meta entirely.
         builder_dexs =
-          perp_dexs_data
-          |> extract_builder_dexs()
-          |> maybe_limit_testnet_dexs()
+          if perp_dexs_data do
+            perp_dexs_data
+            |> extract_builder_dexs()
+            |> maybe_limit_testnet_dexs()
+          else
+            debug("perpDexs unavailable - base perp meta only")
+            []
+          end
 
         debug("Builder DEXs", %{dexs: builder_dexs, count: length(builder_dexs)})
 
@@ -333,6 +381,7 @@ defmodule Hyperliquid.Cache do
     # Store mids if available
     if mids_data do
       debug("Storing mids", %{mids_count: map_size(mids_data)})
+      cache_put(:all_mids_updated_at, System.system_time(:millisecond))
       cache_put(:all_mids, mids_data)
     end
 
@@ -347,9 +396,18 @@ defmodule Hyperliquid.Cache do
     :ok
   end
 
+  @doc false
+  # Returns the Cachex instance a key lives in. Metadata keys are routed to the
+  # unbounded `:hyperliquid_meta` cache; everything else stays in `:hyperliquid`.
+  def cache_name(key) when key in @meta_keys, do: @meta_cache
+  def cache_name(_key), do: @cache
+
+  @doc false
+  def meta_keys, do: @meta_keys
+
   # Simple cache put without TTL - entries persist until manually updated or cleared
   defp cache_put(key, value) do
-    case Cachex.put(@cache, key, value) do
+    case Cachex.put(cache_name(key), key, value) do
       {:ok, true} ->
         :ok
 
@@ -571,16 +629,32 @@ defmodule Hyperliquid.Cache do
         nil
 
       mids ->
-        case Map.get(mids, coin) do
-          nil -> nil
-          price when is_binary(price) -> String.to_float(price)
-          price when is_float(price) -> price
+        parse_mid(Map.get(mids, coin))
+    end
+  end
+
+  # Mids arrive as strings ("27", "27.5"), but the WS firehose and some
+  # endpoints hand back numbers. Never raise on the market-order hot path.
+  defp parse_mid(nil), do: nil
+  defp parse_mid(price) when is_float(price), do: price
+  defp parse_mid(price) when is_integer(price), do: price * 1.0
+
+  defp parse_mid(price) when is_binary(price) do
+    case Float.parse(price) do
+      {value, _rest} ->
+        value
+
+      :error ->
+        case Integer.parse(price) do
+          {value, _rest} -> value * 1.0
+          :error -> nil
         end
     end
   end
 
-  # ===================== HIP-4 outcome assets =====================
+  defp parse_mid(_), do: nil
 
+  # ===================== HIP-4 outcome assets =====================
   # Outcome assets are derived from an outcome id plus a binary side, encoded as
   # `outcome * 10 + side`. The same encoding appears three ways:
   #
@@ -716,6 +790,34 @@ defmodule Hyperliquid.Cache do
         {assets, decimals}
       end
     end)
+  end
+
+  @doc """
+  Age of the cached `:all_mids` snapshot in milliseconds, or `nil` if unknown.
+
+  Useful for refusing to price a market order off a stale snapshot when the
+  live mids subscription has died.
+
+      if Hyperliquid.Cache.mids_stale?(30_000), do: {:error, :stale_mids}
+  """
+  def mids_age_ms do
+    case get(:all_mids_updated_at) do
+      nil -> nil
+      ts when is_integer(ts) -> System.system_time(:millisecond) - ts
+      _ -> nil
+    end
+  end
+
+  @doc """
+  Returns true when the cached mids snapshot is older than `max_age_ms`.
+
+  Returns `true` when the age is unknown (no mids have ever been stored).
+  """
+  def mids_stale?(max_age_ms) when is_integer(max_age_ms) do
+    case mids_age_ms() do
+      nil -> true
+      age -> age > max_age_ms
+    end
   end
 
   @doc """
@@ -904,6 +1006,7 @@ defmodule Hyperliquid.Cache do
         existing -> Map.merge(existing, mids)
       end
 
+    cache_put(:all_mids_updated_at, System.system_time(:millisecond))
     cache_put(:all_mids, merged_mids)
   end
 
@@ -975,9 +1078,50 @@ defmodule Hyperliquid.Cache do
     - `{:ok, timer_ref}` - Timer scheduled successfully
   """
   def schedule_refresh(opts \\ []) do
-    interval = Keyword.get(opts, :interval, @refresh_interval)
+    interval = Keyword.get(opts, :interval, refresh_interval())
     {:ok, Process.send_after(self(), :refresh_cache, interval)}
   end
+
+  @doc """
+  Returns the configured periodic refresh interval in milliseconds.
+  """
+  def refresh_interval do
+    case Config.cache_refresh_interval() do
+      interval when is_integer(interval) -> interval
+      _ -> @refresh_interval
+    end
+  end
+
+  @doc """
+  Re-fetch exchange metadata and overwrite the cached copies.
+
+  Picks up new listings, new builder DEXs and changed `szDecimals` without a
+  VM restart. Driven periodically by `Hyperliquid.Cache.Warmer`; safe to call
+  manually.
+
+  ## Returns
+
+  - `:ok` - every source refreshed
+  - `{:ok, :partial, failed_keys}` - some sources failed; the cached copies of
+    the failed keys are left untouched (stale, not blank)
+  - `{:error, :all_failed}` - nothing could be refreshed
+  """
+  def refresh do
+    start = System.monotonic_time()
+    result = init_with_partial_success()
+
+    :telemetry.execute(
+      [:hyperliquid, :cache, :refresh, :stop],
+      %{duration: System.monotonic_time() - start},
+      %{result: refresh_result_tag(result)}
+    )
+
+    result
+  end
+
+  defp refresh_result_tag(:ok), do: :ok
+  defp refresh_result_tag({:ok, :partial, _}), do: :partial
+  defp refresh_result_tag(_), do: :error
 
   # Handle incoming WebSocket messages for allMids
   defp handle_mids_message(%{"channel" => "allMids", "data" => %{"mids" => mids}}) do
@@ -1252,7 +1396,7 @@ defmodule Hyperliquid.Cache do
   Get a value from the cache by key.
   """
   def get(key) do
-    case Cachex.get(@cache, key) do
+    case Cachex.get(cache_name(key), key) do
       {:ok, value} -> value
       {:error, _} -> nil
     end
@@ -1269,14 +1413,14 @@ defmodule Hyperliquid.Cache do
   Delete a key from the cache.
   """
   def del(key) do
-    Cachex.del!(@cache, key)
+    Cachex.del!(cache_name(key), key)
   end
 
   @doc """
   Check if a key exists in the cache.
   """
   def exists?(key) do
-    case Cachex.exists?(@cache, key) do
+    case Cachex.exists?(cache_name(key), key) do
       {:ok, exists} -> exists
       _ -> false
     end
@@ -1286,6 +1430,7 @@ defmodule Hyperliquid.Cache do
   Clear all entries in the cache.
   """
   def clear do
+    Cachex.clear!(@meta_cache)
     Cachex.clear!(@cache)
   end
 end

@@ -138,12 +138,14 @@ defmodule Hyperliquid.Api.ExchangeEndpoint do
 
         defp execute_l1_action(private_key, action, opts) do
           vault_address = Keyword.get(opts, :vault_address)
-          nonce = System.system_time(:millisecond)
+          nonce = Hyperliquid.Utils.generate_nonce()
           expires_after = Hyperliquid.Config.expires_after()
           is_mainnet = Hyperliquid.Config.mainnet?()
 
           metadata = %{
+            module: __MODULE__,
             endpoint: unquote(action_type),
+            action_type: unquote(action_type),
             type: :exchange,
             signing: :l1
           }
@@ -211,22 +213,18 @@ defmodule Hyperliquid.Api.ExchangeEndpoint do
                expires_after,
                is_mainnet
              ) do
-          connection_id =
-            Hyperliquid.Signer.compute_connection_id_ex(
-              action_json,
-              nonce,
-              vault_address,
-              expires_after
-            )
-
-          case Hyperliquid.Signer.sign_l1_action(private_key, connection_id, is_mainnet) do
-            %{"r" => r, "s" => s, "v" => v} -> {:ok, %{r: r, s: s, v: v}}
-            error -> {:error, {:signing_error, error}}
-          end
+          Hyperliquid.Api.Exchange.Action.sign_json(
+            private_key,
+            action_json,
+            nonce,
+            vault_address,
+            expires_after,
+            is_mainnet
+          )
         end
 
         defp generate_nonce do
-          System.system_time(:millisecond)
+          Hyperliquid.Utils.generate_nonce()
         end
       end
     else
@@ -266,12 +264,14 @@ defmodule Hyperliquid.Api.ExchangeEndpoint do
 
         defp execute_l1_action(private_key, action, opts) do
           vault_address = Keyword.get(opts, :vault_address)
-          nonce = System.system_time(:millisecond)
+          nonce = Hyperliquid.Utils.generate_nonce()
           expires_after = Hyperliquid.Config.expires_after()
           is_mainnet = Hyperliquid.Config.mainnet?()
 
           metadata = %{
+            module: __MODULE__,
             endpoint: unquote(action_type),
+            action_type: unquote(action_type),
             type: :exchange,
             signing: :l1
           }
@@ -339,22 +339,18 @@ defmodule Hyperliquid.Api.ExchangeEndpoint do
                expires_after,
                is_mainnet
              ) do
-          connection_id =
-            Hyperliquid.Signer.compute_connection_id_ex(
-              action_json,
-              nonce,
-              vault_address,
-              expires_after
-            )
-
-          case Hyperliquid.Signer.sign_l1_action(private_key, connection_id, is_mainnet) do
-            %{"r" => r, "s" => s, "v" => v} -> {:ok, %{r: r, s: s, v: v}}
-            error -> {:error, {:signing_error, error}}
-          end
+          Hyperliquid.Api.Exchange.Action.sign_json(
+            private_key,
+            action_json,
+            nonce,
+            vault_address,
+            expires_after,
+            is_mainnet
+          )
         end
 
         defp generate_nonce do
-          System.system_time(:millisecond)
+          Hyperliquid.Utils.generate_nonce()
         end
       end
     end
@@ -368,23 +364,17 @@ defmodule Hyperliquid.Api.ExchangeEndpoint do
       def action_type, do: unquote(action_type)
 
       defp sign_exchange_action(private_key, action_json, nonce, vault_address, expires_after) do
-        is_mainnet = Hyperliquid.Config.mainnet?()
-
-        case Hyperliquid.Signer.sign_exchange_action_ex(
-               private_key,
-               action_json,
-               nonce,
-               is_mainnet,
-               vault_address,
-               expires_after
-             ) do
-          %{"r" => r, "s" => s, "v" => v} -> {:ok, %{r: r, s: s, v: v}}
-          error -> {:error, {:signing_error, error}}
-        end
+        Hyperliquid.Api.Exchange.Action.sign_json(
+          private_key,
+          action_json,
+          nonce,
+          vault_address,
+          expires_after
+        )
       end
 
       defp generate_nonce do
-        System.system_time(:millisecond)
+        Hyperliquid.Utils.generate_nonce()
       end
 
       defp emit_telemetry_start(metadata) do

@@ -127,7 +127,7 @@ defmodule Hyperliquid.Api.Exchange.OrderGroupingTest do
     test "rejects a priority rate above 100%" do
       order = Order.limit(0, true, "30000", "0.1", tif: "Ioc")
 
-      assert_raise ArgumentError, ~r/between 0 and 100000000/, fn ->
+      assert_raise ArgumentError, ~r/0\.\.100_000_000/, fn ->
         Order.place_batch([order], {:priority, 100_000_001}, private_key: test_key())
       end
     end

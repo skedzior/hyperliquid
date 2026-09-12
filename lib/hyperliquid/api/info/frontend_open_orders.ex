@@ -4,6 +4,13 @@ defmodule Hyperliquid.Api.Info.FrontendOpenOrders do
 
   Similar to openOrders but includes additional display fields used by the frontend.
 
+  ## `order_type` values
+
+  `"Market"`, `"Limit"`, `"Stop Market"`, `"Stop Limit"`, `"Take Profit Market"`,
+  `"Take Profit Limit"`, and - added upstream in v0.33.3 - `"Twap Slice"`,
+  `"Vault Close"`, `"Spot Dust Conversion"`. The field is an unconstrained string,
+  so no cast breaks; audit any downstream pattern match.
+
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/info-endpoint#retrieve-a-users-open-orders-with-additional-frontend-info
 
   ## Usage

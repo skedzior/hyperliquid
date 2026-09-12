@@ -4,10 +4,10 @@ use alloy::dyn_abi::Eip712Domain;
 use alloy::primitives::{keccak256, Address, Signature as AlloySignature, B256};
 use alloy::signers::{local::PrivateKeySigner, SignerSync};
 use alloy::sol_types::{eip712_domain, SolStruct, SolValue};
-use rustler::{Env, NifResult, Term, Encoder};
+use rustler::{Encoder, Env, NifResult, Term};
 use serde_json::Value as JsonValue;
 // For generic EIP-712 TypedData support
-use ethers_core::types::transaction::eip712::{TypedData as EthersTypedData, Eip712 as _};
+use ethers_core::types::transaction::eip712::{Eip712 as _, TypedData as EthersTypedData};
 use serde::{Deserialize, Serialize};
 
 // ===== Errors =====
@@ -28,10 +28,17 @@ pub enum Error {
 // EIP-712 for multi-sig send
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct SendMultiSig { pub signature_chain_id: u64, pub hyperliquid_chain: String, pub multi_sig_action_hash: B256, pub nonce: u64 }
+pub struct SendMultiSig {
+    pub signature_chain_id: u64,
+    pub hyperliquid_chain: String,
+    pub multi_sig_action_hash: B256,
+    pub nonce: u64,
+}
 
 impl Eip712 for SendMultiSig {
-    fn domain(&self) -> Eip712Domain { tx_domain(self.signature_chain_id) }
+    fn domain(&self) -> Eip712Domain {
+        tx_domain(self.signature_chain_id)
+    }
     fn struct_hash(&self) -> B256 {
         let items = (
             keccak256("HyperliquidTransaction:SendMultiSig(string hyperliquidChain,bytes32 multiSigActionHash,uint64 nonce)"),
@@ -43,46 +50,8 @@ impl Eip712 for SendMultiSig {
     }
 }
 
-// Deterministic representation of MultiSig action for msgpack hashing
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-struct MsSignature { r: String, s: String, v: u8 }
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-struct MsPayloadAction { #[serde(rename = "type")] type_field: String, time: u64 }
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-struct MsPayload { multi_sig_user: String, outer_signer: String, action: MsPayloadAction }
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-struct MsAction { signature_chain_id: String, signatures: Vec<MsSignature>, payload: MsPayload }
-
-fn hash_ms_action_with_exp(
-    action: &MsAction,
-    timestamp: u64,
-    vault_address: Option<Address>,
-    expires_after: Option<u64>,
-) -> Result<B256, Error> {
-    let mut bytes = rmp_serde::to_vec_named(action).map_err(|e| Error::RmpParse(e.to_string()))?;
-    bytes.extend(timestamp.to_be_bytes());
-    if let Some(vault_address) = vault_address {
-        bytes.push(1);
-        bytes.extend(vault_address);
-    } else {
-        bytes.push(0);
-    }
-    if let Some(exp) = expires_after {
-        bytes.push(0);
-        bytes.extend(exp.to_be_bytes());
-    }
-    Ok(keccak256(bytes))
-}
-
 // New: Multi-sig variant that accepts arbitrary JSON action body (not constrained to Actions enum)
-#[rustler::nif]
+#[rustler::nif(schedule = "DirtyCpu")]
 fn sign_multi_sig_action_ex<'a>(
     env: Env<'a>,
     private_key_hex: String,
@@ -102,17 +71,26 @@ fn sign_multi_sig_action_ex<'a>(
 
     // Parse signatureChainId (hex string like "0x66eee") from JSON map
     let sig_chain_id = match &value {
-        JsonValue::Object(map) => {
-            match map.get("signatureChainId") {
-                Some(JsonValue::String(s)) if s.starts_with("0x") || s.starts_with("0X") => {
-                    u64::from_str_radix(&s[2..], 16)
-                        .map_err(|e| rustler::Error::Term(Box::new(format!("invalid signatureChainId: {}", e))))?
-                }
-                Some(JsonValue::Number(n)) => n.as_u64().ok_or_else(|| rustler::Error::Term(Box::new("invalid signatureChainId number".to_string())))?,
-                _ => return Err(rustler::Error::Term(Box::new("missing signatureChainId".to_string())))
+        JsonValue::Object(map) => match map.get("signatureChainId") {
+            Some(JsonValue::String(s)) if s.starts_with("0x") || s.starts_with("0X") => {
+                u64::from_str_radix(&s[2..], 16).map_err(|e| {
+                    rustler::Error::Term(Box::new(format!("invalid signatureChainId: {}", e)))
+                })?
             }
+            Some(JsonValue::Number(n)) => n.as_u64().ok_or_else(|| {
+                rustler::Error::Term(Box::new("invalid signatureChainId number".to_string()))
+            })?,
+            _ => {
+                return Err(rustler::Error::Term(Box::new(
+                    "missing signatureChainId".to_string(),
+                )))
+            }
+        },
+        _ => {
+            return Err(rustler::Error::Term(Box::new(
+                "action must be a JSON object".to_string(),
+            )))
         }
-        _ => return Err(rustler::Error::Term(Box::new("action must be a JSON object".to_string())))
     };
 
     // Compute multiSigActionHash over the full action object (no top-level type expected)
@@ -120,17 +98,26 @@ fn sign_multi_sig_action_ex<'a>(
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
 
     // Build typed EIP-712 payload and sign
-    let hyperliquid_chain = if is_mainnet { "Mainnet".to_string() } else { "Testnet".to_string() };
-    let payload = SendMultiSig { signature_chain_id: sig_chain_id, hyperliquid_chain, multi_sig_action_hash: ms_hash, nonce };
+    let hyperliquid_chain = if is_mainnet {
+        "Mainnet".to_string()
+    } else {
+        "Testnet".to_string()
+    };
+    let payload = SendMultiSig {
+        signature_chain_id: sig_chain_id,
+        hyperliquid_chain,
+        multi_sig_action_hash: ms_hash,
+        nonce,
+    };
 
-    let sig = sign_typed_data(&payload, &wallet)
+    let sig = sign_eip712_payload(&payload, &wallet)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
 
     signature_to_map(env, sig, None)
 }
 
 // Generic EIP-712 TypedData signer. Accepts JSON strings for domain/types/message and the primary type.
-#[rustler::nif]
+#[rustler::nif(schedule = "DirtyCpu")]
 fn sign_typed_data<'a>(
     env: Env<'a>,
     private_key_hex: String,
@@ -206,25 +193,41 @@ mod l1_agent {
                 verifying_contract: Address::ZERO,
             }
         }
-        fn struct_hash(&self) -> B256 { self.eip712_hash_struct() }
+        fn struct_hash(&self) -> B256 {
+            self.eip712_hash_struct()
+        }
     }
 
     pub(super) use Agent as L1Agent;
 }
 
-fn sign_typed_data<T: Eip712>(payload: &T, wallet: &PrivateKeySigner) -> Result<AlloySignature, Error> {
+fn sign_eip712_payload<T: Eip712>(
+    payload: &T,
+    wallet: &PrivateKeySigner,
+) -> Result<AlloySignature, Error> {
     wallet
         .sign_hash_sync(&payload.eip712_signing_hash())
         .map_err(|e| Error::SignatureFailure(e.to_string()))
 }
 
-fn sign_l1_agent_action(wallet: &PrivateKeySigner, connection_id: B256, is_mainnet: bool) -> Result<AlloySignature, Error> {
+fn sign_l1_agent_action(
+    wallet: &PrivateKeySigner,
+    connection_id: B256,
+    is_mainnet: bool,
+) -> Result<AlloySignature, Error> {
     let source = if is_mainnet { "a" } else { "b" }.to_string();
-    let payload = l1_agent::L1Agent { source, connectionId: connection_id };
-    sign_typed_data(&payload, wallet)
+    let payload = l1_agent::L1Agent {
+        source,
+        connectionId: connection_id,
+    };
+    sign_eip712_payload(&payload, wallet)
 }
 
-fn signature_to_map<'a>(env: Env<'a>, sig: AlloySignature, connection_id: Option<B256>) -> NifResult<Term<'a>> {
+fn signature_to_map<'a>(
+    env: Env<'a>,
+    sig: AlloySignature,
+    connection_id: Option<B256>,
+) -> NifResult<Term<'a>> {
     // Zero-pad r and s to 64 hex chars (32 bytes) to match expected format
     let r = format!("0x{:064x}", sig.r());
     let s = format!("0x{:064x}", sig.s());
@@ -272,34 +275,6 @@ fn parse_optional_address(addr_opt: Option<String>) -> Result<Option<Address>, E
     }
 }
 
-fn hash_action_with_exp(
-    action: &Actions,
-    timestamp: u64,
-    vault_address: Option<Address>,
-    expires_after: Option<u64>,
-) -> Result<B256, Error> {
-    let mut bytes = rmp_serde::to_vec_named(action).map_err(|e| Error::RmpParse(e.to_string()))?;
-    // nonce (timestamp) big-endian u64
-    bytes.extend(timestamp.to_be_bytes());
-    // vault flag + address bytes if present
-    if let Some(vault_address) = vault_address {
-        bytes.push(1);
-        bytes.extend(vault_address);
-    } else {
-        bytes.push(0);
-    }
-    // expiresAfter marker + value when present
-    if let Some(exp) = expires_after {
-        bytes.push(0);
-        bytes.extend(exp.to_be_bytes());
-    }
-    Ok(keccak256(bytes))
-}
-
-fn hash_action(action: &Actions, timestamp: u64, vault_address: Option<Address>) -> Result<B256, Error> {
-    hash_action_with_exp(action, timestamp, vault_address, None)
-}
-
 fn hash_json_value_with_exp(
     value: &JsonValue,
     timestamp: u64,
@@ -324,145 +299,13 @@ fn hash_json_value_with_exp(
     Ok(keccak256(bytes))
 }
 
-// ===== Exchange action data (subset needed for signing) =====
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Limit { pub tif: String }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct Trigger { pub is_market: bool, pub trigger_px: String, pub tpsl: String }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub enum Order { Limit(Limit), Trigger(Trigger) }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct OrderRequest {
-    #[serde(rename = "a", alias = "asset")] pub asset: u32,
-    #[serde(rename = "b", alias = "isBuy")] pub is_buy: bool,
-    #[serde(rename = "p", alias = "limitPx")] pub limit_px: String,
-    #[serde(rename = "s", alias = "sz")] pub sz: String,
-    #[serde(rename = "r", alias = "reduceOnly", default)] pub reduce_only: bool,
-    #[serde(rename = "t", alias = "orderType")] pub order_type: Order,
-    #[serde(rename = "c", alias = "cloid", skip_serializing_if = "Option::is_none")] pub cloid: Option<String>,
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct BuilderInfo { #[serde(rename = "b")] pub builder: String, #[serde(rename = "f")] pub fee: u64 }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct BulkOrder { pub orders: Vec<OrderRequest>, pub grouping: Grouping, #[serde(default, skip_serializing_if = "Option::is_none")] pub builder: Option<BuilderInfo> }
-
-/// Order grouping is either one of the named strategies ("na", "normalTpsl",
-/// "positionTpsl") or an order priority fee of the form {"p": rate}, where the
-/// rate is the fraction rate / 1e8.
-///
-/// Untagged so that both forms round-trip to the same msgpack bytes the caller
-/// sent — the grouping is part of the signed preimage.
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(untagged)]
-pub enum Grouping { Named(String), Priority(PriorityGrouping) }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-pub struct PriorityGrouping { pub p: u64 }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct CancelRequest { #[serde(rename = "a", alias = "asset")] pub asset: u32, #[serde(rename = "o", alias = "oid")] pub oid: u64 }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct BulkCancel { pub cancels: Vec<CancelRequest> }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct CancelRequestCloid { pub asset: u32, pub cloid: String }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct BulkCancelCloid { pub cancels: Vec<CancelRequestCloid> }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ModifyRequest { #[serde(rename = "o", alias = "oid")] pub oid: u64, pub order: OrderRequest }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct BulkModify { pub modifies: Vec<ModifyRequest> }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateLeverage { pub asset: u32, pub is_cross: bool, pub leverage: u32 }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct UpdateIsolatedMargin { pub asset: u32, pub is_buy: bool, pub ntli: i64 }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ClassTransfer { pub usdc: u64, pub to_perp: bool }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct SpotUser { pub class_transfer: ClassTransfer }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct VaultTransfer { pub vault_address: Address, pub is_deposit: bool, pub usd: u64 }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct SubAccountTransfer { pub sub_account_user: String, pub is_deposit: bool, pub usd: u64 }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct SubAccountSpotTransfer { pub sub_account_user: String, pub is_deposit: bool, pub token: String, pub amount: String }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct UsdClassTransfer { pub signature_chain_id: String, pub hyperliquid_chain: String, pub amount: String, pub to_perp: bool, pub nonce: u64 }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct SetReferrer { pub code: String }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct EvmUserModify { pub using_big_blocks: bool }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ScheduleCancel { #[serde(skip_serializing_if = "Option::is_none")] pub time: Option<u64> }
-
-#[derive(Deserialize, Serialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ClaimRewards;
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(tag = "type")]
-#[serde(rename_all = "camelCase")]
-pub enum Actions {
-    UpdateLeverage(UpdateLeverage),
-    UpdateIsolatedMargin(UpdateIsolatedMargin),
-    Order(BulkOrder),
-    Cancel(BulkCancel),
-    CancelByCloid(BulkCancelCloid),
-    BatchModify(BulkModify),
-    SpotUser(SpotUser),
-    VaultTransfer(VaultTransfer),
-    SubAccountTransfer(SubAccountTransfer),
-    SubAccountSpotTransfer(SubAccountSpotTransfer),
-    UsdClassTransfer(UsdClassTransfer),
-    SetReferrer(SetReferrer),
-    EvmUserModify(EvmUserModify),
-    ScheduleCancel(ScheduleCancel),
-    ClaimRewards(ClaimRewards),
-}
+// ===== Exchange action data =====
+//
+// There is deliberately no typed `Actions` enum here any more. Every L1 action
+// is hashed from the caller-supplied JSON via `hash_json_value_with_exp`, so
+// key order is owned by Elixir (`Hyperliquid.Api.Exchange.Action`) and adding a
+// new exchange action needs no Rust change, no version bump and no precompiled
+// artifact rebuild.
 
 // ===== EIP-712 typed payloads =====
 
@@ -477,10 +320,18 @@ fn tx_domain(chain_id: u64) -> Eip712Domain {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct UsdSend { pub signature_chain_id: u64, pub hyperliquid_chain: String, pub destination: String, pub amount: String, pub time: u64 }
+pub struct UsdSend {
+    pub signature_chain_id: u64,
+    pub hyperliquid_chain: String,
+    pub destination: String,
+    pub amount: String,
+    pub time: u64,
+}
 
 impl Eip712 for UsdSend {
-    fn domain(&self) -> Eip712Domain { tx_domain(self.signature_chain_id) }
+    fn domain(&self) -> Eip712Domain {
+        tx_domain(self.signature_chain_id)
+    }
     fn struct_hash(&self) -> B256 {
         let items = (
             keccak256("HyperliquidTransaction:UsdSend(string hyperliquidChain,string destination,string amount,uint64 time)"),
@@ -495,10 +346,18 @@ impl Eip712 for UsdSend {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct Withdraw3 { pub signature_chain_id: u64, pub hyperliquid_chain: String, pub destination: String, pub amount: String, pub time: u64 }
+pub struct Withdraw3 {
+    pub signature_chain_id: u64,
+    pub hyperliquid_chain: String,
+    pub destination: String,
+    pub amount: String,
+    pub time: u64,
+}
 
 impl Eip712 for Withdraw3 {
-    fn domain(&self) -> Eip712Domain { tx_domain(self.signature_chain_id) }
+    fn domain(&self) -> Eip712Domain {
+        tx_domain(self.signature_chain_id)
+    }
     fn struct_hash(&self) -> B256 {
         let items = (
             keccak256("HyperliquidTransaction:Withdraw(string hyperliquidChain,string destination,string amount,uint64 time)"),
@@ -513,10 +372,19 @@ impl Eip712 for Withdraw3 {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct SpotSend { pub signature_chain_id: u64, pub hyperliquid_chain: String, pub destination: String, pub token: String, pub amount: String, pub time: u64 }
+pub struct SpotSend {
+    pub signature_chain_id: u64,
+    pub hyperliquid_chain: String,
+    pub destination: String,
+    pub token: String,
+    pub amount: String,
+    pub time: u64,
+}
 
 impl Eip712 for SpotSend {
-    fn domain(&self) -> Eip712Domain { tx_domain(self.signature_chain_id) }
+    fn domain(&self) -> Eip712Domain {
+        tx_domain(self.signature_chain_id)
+    }
     fn struct_hash(&self) -> B256 {
         let items = (
             keccak256("HyperliquidTransaction:SpotSend(string hyperliquidChain,string destination,string token,string amount,uint64 time)"),
@@ -532,10 +400,18 @@ impl Eip712 for SpotSend {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ApproveBuilderFee { pub signature_chain_id: u64, pub hyperliquid_chain: String, pub builder: Address, pub max_fee_rate: String, pub nonce: u64 }
+pub struct ApproveBuilderFee {
+    pub signature_chain_id: u64,
+    pub hyperliquid_chain: String,
+    pub builder: Address,
+    pub max_fee_rate: String,
+    pub nonce: u64,
+}
 
 impl Eip712 for ApproveBuilderFee {
-    fn domain(&self) -> Eip712Domain { tx_domain(self.signature_chain_id) }
+    fn domain(&self) -> Eip712Domain {
+        tx_domain(self.signature_chain_id)
+    }
     fn struct_hash(&self) -> B256 {
         let items = (
             keccak256("HyperliquidTransaction:ApproveBuilderFee(string hyperliquidChain,string maxFeeRate,address builder,uint64 nonce)"),
@@ -550,10 +426,18 @@ impl Eip712 for ApproveBuilderFee {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ApproveAgent { pub signature_chain_id: u64, pub hyperliquid_chain: String, pub agent_address: Address, pub agent_name: Option<String>, pub nonce: u64 }
+pub struct ApproveAgent {
+    pub signature_chain_id: u64,
+    pub hyperliquid_chain: String,
+    pub agent_address: Address,
+    pub agent_name: Option<String>,
+    pub nonce: u64,
+}
 
 impl Eip712 for ApproveAgent {
-    fn domain(&self) -> Eip712Domain { tx_domain(self.signature_chain_id) }
+    fn domain(&self) -> Eip712Domain {
+        tx_domain(self.signature_chain_id)
+    }
     fn struct_hash(&self) -> B256 {
         let items = (
             keccak256("HyperliquidTransaction:ApproveAgent(string hyperliquidChain,address agentAddress,string agentName,uint64 nonce)"),
@@ -566,19 +450,23 @@ impl Eip712 for ApproveAgent {
     }
 }
 
-#[rustler::nif]
-fn compute_connection_id(action_json: String, nonce: u64, vault_address: Option<String>) -> NifResult<String> {
-    let action: Actions = serde_json::from_str(&action_json)
+#[rustler::nif(schedule = "DirtyCpu")]
+fn compute_connection_id(
+    action_json: String,
+    nonce: u64,
+    vault_address: Option<String>,
+) -> NifResult<String> {
+    let value: JsonValue = serde_json::from_str(&action_json)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     let vault = parse_optional_address(vault_address)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
-    let cid = hash_action(&action, nonce, vault)
+    let cid = hash_json_value_with_exp(&value, nonce, vault, None)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     Ok(format!("{:#x}", cid))
 }
 
 // New: expiresAfter-aware variant
-#[rustler::nif]
+#[rustler::nif(schedule = "DirtyCpu")]
 fn compute_connection_id_ex(
     action_json: String,
     nonce: u64,
@@ -595,16 +483,23 @@ fn compute_connection_id_ex(
     Ok(format!("{:#x}", cid))
 }
 
-#[rustler::nif]
-fn sign_exchange_action<'a>(env: Env<'a>, private_key_hex: String, action_json: String, nonce: u64, is_mainnet: bool, vault_address: Option<String>) -> NifResult<Term<'a>> {
+#[rustler::nif(schedule = "DirtyCpu")]
+fn sign_exchange_action<'a>(
+    env: Env<'a>,
+    private_key_hex: String,
+    action_json: String,
+    nonce: u64,
+    is_mainnet: bool,
+    vault_address: Option<String>,
+) -> NifResult<Term<'a>> {
     let wallet = parse_wallet(&private_key_hex)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
-    let action: Actions = serde_json::from_str(&action_json)
+    let value: JsonValue = serde_json::from_str(&action_json)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     let vault = parse_optional_address(vault_address)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
 
-    let cid = hash_action(&action, nonce, vault)
+    let cid = hash_json_value_with_exp(&value, nonce, vault, None)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
 
     let sig = sign_l1_agent_action(&wallet, cid, is_mainnet)
@@ -614,7 +509,7 @@ fn sign_exchange_action<'a>(env: Env<'a>, private_key_hex: String, action_json: 
 }
 
 // New: expiresAfter-aware variant
-#[rustler::nif]
+#[rustler::nif(schedule = "DirtyCpu")]
 fn sign_exchange_action_ex<'a>(
     env: Env<'a>,
     private_key_hex: String,
@@ -626,12 +521,12 @@ fn sign_exchange_action_ex<'a>(
 ) -> NifResult<Term<'a>> {
     let wallet = parse_wallet(&private_key_hex)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
-    let action: Actions = serde_json::from_str(&action_json)
+    let value: JsonValue = serde_json::from_str(&action_json)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     let vault = parse_optional_address(vault_address)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
 
-    let cid = hash_action_with_exp(&action, nonce, vault, expires_after)
+    let cid = hash_json_value_with_exp(&value, nonce, vault, expires_after)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
 
     let sig = sign_l1_agent_action(&wallet, cid, is_mainnet)
@@ -650,81 +545,157 @@ fn chain(is_mainnet: bool) -> (u64, String) {
     // 421614 ("0x66eee") matches the official Python SDK and the nktkas
     // TypeScript SDK, so signatures are byte-comparable with both. Keep this in
     // step with Hyperliquid.Config.signature_chain_id/0.
+    //
+    // These per-action NIFs are legacy: every user-signed action now routes
+    // through Hyperliquid.Api.Exchange.UserSigned, which reads the chain id
+    // from config. They are kept for ABI compatibility.
     let chain_id = 421614u64;
     let hyperliquid_chain = if is_mainnet { "Mainnet" } else { "Testnet" }.to_string();
     (chain_id, hyperliquid_chain)
 }
 
 #[rustler::nif]
-fn sign_usd_send<'a>(env: Env<'a>, private_key_hex: String, destination: String, amount: String, time: u64, is_mainnet: bool) -> NifResult<Term<'a>> {
+fn sign_usd_send<'a>(
+    env: Env<'a>,
+    private_key_hex: String,
+    destination: String,
+    amount: String,
+    time: u64,
+    is_mainnet: bool,
+) -> NifResult<Term<'a>> {
     let wallet = parse_wallet(&private_key_hex)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     let (signature_chain_id, hyperliquid_chain) = chain(is_mainnet);
-    let payload = UsdSend { signature_chain_id, hyperliquid_chain, destination, amount, time };
-    let sig = sign_typed_data(&payload, &wallet)
+    let payload = UsdSend {
+        signature_chain_id,
+        hyperliquid_chain,
+        destination,
+        amount,
+        time,
+    };
+    let sig = sign_eip712_payload(&payload, &wallet)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     signature_to_map(env, sig, None)
 }
 
 #[rustler::nif]
-fn sign_withdraw3<'a>(env: Env<'a>, private_key_hex: String, destination: String, amount: String, time: u64, is_mainnet: bool) -> NifResult<Term<'a>> {
+fn sign_withdraw3<'a>(
+    env: Env<'a>,
+    private_key_hex: String,
+    destination: String,
+    amount: String,
+    time: u64,
+    is_mainnet: bool,
+) -> NifResult<Term<'a>> {
     let wallet = parse_wallet(&private_key_hex)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     let (signature_chain_id, hyperliquid_chain) = chain(is_mainnet);
-    let payload = Withdraw3 { signature_chain_id, hyperliquid_chain, destination, amount, time };
-    let sig = sign_typed_data(&payload, &wallet)
+    let payload = Withdraw3 {
+        signature_chain_id,
+        hyperliquid_chain,
+        destination,
+        amount,
+        time,
+    };
+    let sig = sign_eip712_payload(&payload, &wallet)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     signature_to_map(env, sig, None)
 }
 
 #[rustler::nif]
-fn sign_spot_send<'a>(env: Env<'a>, private_key_hex: String, destination: String, token: String, amount: String, time: u64, is_mainnet: bool) -> NifResult<Term<'a>> {
+fn sign_spot_send<'a>(
+    env: Env<'a>,
+    private_key_hex: String,
+    destination: String,
+    token: String,
+    amount: String,
+    time: u64,
+    is_mainnet: bool,
+) -> NifResult<Term<'a>> {
     let wallet = parse_wallet(&private_key_hex)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     let (signature_chain_id, hyperliquid_chain) = chain(is_mainnet);
-    let payload = SpotSend { signature_chain_id, hyperliquid_chain, destination, token, amount, time };
-    let sig = sign_typed_data(&payload, &wallet)
+    let payload = SpotSend {
+        signature_chain_id,
+        hyperliquid_chain,
+        destination,
+        token,
+        amount,
+        time,
+    };
+    let sig = sign_eip712_payload(&payload, &wallet)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     signature_to_map(env, sig, None)
 }
 
 #[rustler::nif]
-fn sign_approve_builder_fee<'a>(env: Env<'a>, private_key_hex: String, builder: String, max_fee_rate: String, nonce: u64, is_mainnet: bool) -> NifResult<Term<'a>> {
+fn sign_approve_builder_fee<'a>(
+    env: Env<'a>,
+    private_key_hex: String,
+    builder: String,
+    max_fee_rate: String,
+    nonce: u64,
+    is_mainnet: bool,
+) -> NifResult<Term<'a>> {
     let wallet = parse_wallet(&private_key_hex)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     let (signature_chain_id, hyperliquid_chain) = chain(is_mainnet);
-    let builder_addr = Address::from_str(&builder)
-        .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
-    let payload = ApproveBuilderFee { signature_chain_id, hyperliquid_chain, builder: builder_addr, max_fee_rate, nonce };
-    let sig = sign_typed_data(&payload, &wallet)
+    let builder_addr =
+        Address::from_str(&builder).map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
+    let payload = ApproveBuilderFee {
+        signature_chain_id,
+        hyperliquid_chain,
+        builder: builder_addr,
+        max_fee_rate,
+        nonce,
+    };
+    let sig = sign_eip712_payload(&payload, &wallet)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     signature_to_map(env, sig, None)
 }
 
 #[rustler::nif]
-fn sign_approve_agent<'a>(env: Env<'a>, private_key_hex: String, agent_address: String, agent_name: Option<String>, nonce: u64, is_mainnet: bool) -> NifResult<Term<'a>> {
+fn sign_approve_agent<'a>(
+    env: Env<'a>,
+    private_key_hex: String,
+    agent_address: String,
+    agent_name: Option<String>,
+    nonce: u64,
+    is_mainnet: bool,
+) -> NifResult<Term<'a>> {
     let wallet = parse_wallet(&private_key_hex)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     let (signature_chain_id, hyperliquid_chain) = chain(is_mainnet);
     let agent_addr = Address::from_str(&agent_address)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
-    let payload = ApproveAgent { signature_chain_id, hyperliquid_chain, agent_address: agent_addr, agent_name, nonce };
-    let sig = sign_typed_data(&payload, &wallet)
+    let payload = ApproveAgent {
+        signature_chain_id,
+        hyperliquid_chain,
+        agent_address: agent_addr,
+        agent_name,
+        nonce,
+    };
+    let sig = sign_eip712_payload(&payload, &wallet)
         .map_err(|e| rustler::Error::Term(Box::new(e.to_string())))?;
     signature_to_map(env, sig, None)
 }
 
 // Sign an L1 action with the given private key and connection ID
 #[rustler::nif]
-fn sign_l1_action<'a>(env: Env<'a>, private_key_hex: String, connection_id: String, is_mainnet: bool) -> NifResult<Term<'a>> {
+fn sign_l1_action<'a>(
+    env: Env<'a>,
+    private_key_hex: String,
+    connection_id: String,
+    is_mainnet: bool,
+) -> NifResult<Term<'a>> {
     // Parse the wallet from private key
     let wallet = parse_wallet(&private_key_hex)
         .map_err(|e| rustler::Error::Term(Box::new(format!("wallet error: {}", e))))?;
-    
+
     // Parse the connection ID as a B256 hash
     let cid = B256::from_str(&connection_id)
         .map_err(|e| rustler::Error::Term(Box::new(format!("invalid connection_id: {}", e))))?;
-    
+
     // Sign the L1 action
     let sig = sign_l1_agent_action(&wallet, cid, is_mainnet)
         .map_err(|e| rustler::Error::Term(Box::new(format!("signing failed: {}", e))))?;
@@ -736,7 +707,11 @@ fn sign_l1_action<'a>(env: Env<'a>, private_key_hex: String, connection_id: Stri
 #[rustler::nif]
 fn to_checksum_address(address: String) -> NifResult<String> {
     // Strip 0x/0X and whitespace
-    let raw = address.trim().trim_start_matches("0x").trim_start_matches("0X").to_string();
+    let raw = address
+        .trim()
+        .trim_start_matches("0x")
+        .trim_start_matches("0X")
+        .to_string();
 
     // Basic validation: 40 hex chars
     if raw.len() != 40 || !raw.chars().all(|c| c.is_ascii_hexdigit()) {

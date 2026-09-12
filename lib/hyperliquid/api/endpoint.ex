@@ -315,10 +315,21 @@ defmodule Hyperliquid.Api.Endpoint do
     endpoint_ast =
       cond do
         type == :stats ->
-          generate_stats_endpoint(request_type, rate_limit_cost, has_preprocess, has_custom_parse_response)
+          generate_stats_endpoint(
+            request_type,
+            rate_limit_cost,
+            has_preprocess,
+            has_custom_parse_response
+          )
 
         static_request ->
-          generate_simple_endpoint(type, static_request, rate_limit_cost, has_preprocess, has_custom_parse_response)
+          generate_simple_endpoint(
+            type,
+            static_request,
+            rate_limit_cost,
+            has_preprocess,
+            has_custom_parse_response
+          )
 
         true ->
           generate_parametrized_endpoint(
@@ -376,11 +387,23 @@ defmodule Hyperliquid.Api.Endpoint do
     end
   end
 
-  defp generate_stats_endpoint(endpoint_name, rate_limit_cost, has_preprocess, _has_custom_parse_response) do
+  defp generate_stats_endpoint(
+         endpoint_name,
+         rate_limit_cost,
+         has_preprocess,
+         _has_custom_parse_response
+       ) do
     request_body =
       if has_preprocess do
         quote do
-          metadata = %{endpoint: unquote(endpoint_name), type: :stats, params: %{}}
+          metadata = %{
+            module: __MODULE__,
+            endpoint: unquote(endpoint_name),
+            request_type: unquote(endpoint_name),
+            type: :stats,
+            params: %{}
+          }
+
           start_time = System.monotonic_time()
 
           :telemetry.execute(
@@ -417,7 +440,14 @@ defmodule Hyperliquid.Api.Endpoint do
         end
       else
         quote do
-          metadata = %{endpoint: unquote(endpoint_name), type: :stats, params: %{}}
+          metadata = %{
+            module: __MODULE__,
+            endpoint: unquote(endpoint_name),
+            request_type: unquote(endpoint_name),
+            type: :stats,
+            params: %{}
+          }
+
           start_time = System.monotonic_time()
 
           :telemetry.execute(
@@ -498,14 +528,27 @@ defmodule Hyperliquid.Api.Endpoint do
     end
   end
 
-  defp generate_simple_endpoint(type, request, rate_limit_cost, has_preprocess, _has_custom_parse_response) do
+  defp generate_simple_endpoint(
+         type,
+         request,
+         rate_limit_cost,
+         has_preprocess,
+         _has_custom_parse_response
+       ) do
     http_function = get_http_function(type)
     endpoint_name = request[:type] || "unknown"
 
     request_body =
       if has_preprocess do
         quote do
-          metadata = %{endpoint: unquote(endpoint_name), type: unquote(type), params: %{}}
+          metadata = %{
+            module: __MODULE__,
+            endpoint: unquote(endpoint_name),
+            request_type: unquote(endpoint_name),
+            type: unquote(type),
+            params: %{}
+          }
+
           start_time = System.monotonic_time()
 
           :telemetry.execute(
@@ -542,7 +585,14 @@ defmodule Hyperliquid.Api.Endpoint do
         end
       else
         quote do
-          metadata = %{endpoint: unquote(endpoint_name), type: unquote(type), params: %{}}
+          metadata = %{
+            module: __MODULE__,
+            endpoint: unquote(endpoint_name),
+            request_type: unquote(endpoint_name),
+            type: unquote(type),
+            params: %{}
+          }
+
           start_time = System.monotonic_time()
 
           :telemetry.execute(
@@ -660,7 +710,9 @@ defmodule Hyperliquid.Api.Endpoint do
         if has_preprocess do
           quote do
             metadata = %{
+              module: __MODULE__,
               endpoint: unquote(request_type),
+              request_type: unquote(request_type),
               type: unquote(type),
               params: Map.new(unquote(params_map_ast))
             }
@@ -705,7 +757,9 @@ defmodule Hyperliquid.Api.Endpoint do
         else
           quote do
             metadata = %{
+              module: __MODULE__,
               endpoint: unquote(request_type),
+              request_type: unquote(request_type),
               type: unquote(type),
               params: Map.new(unquote(params_map_ast))
             }
@@ -820,7 +874,9 @@ defmodule Hyperliquid.Api.Endpoint do
         if has_preprocess do
           quote do
             metadata = %{
+              module: __MODULE__,
               endpoint: unquote(request_type),
+              request_type: unquote(request_type),
               type: unquote(type),
               params: Map.new(unquote(params_map_ast))
             }
@@ -865,7 +921,9 @@ defmodule Hyperliquid.Api.Endpoint do
         else
           quote do
             metadata = %{
+              module: __MODULE__,
               endpoint: unquote(request_type),
+              request_type: unquote(request_type),
               type: unquote(type),
               params: Map.new(unquote(params_map_ast))
             }

@@ -14,6 +14,23 @@ defmodule Hyperliquid.Api.Exchange.SpotDeploy do
   | `set_deployer_trading_fee_share/3`| `setDeployerTradingFeeShare` | Set deployer fee share (0–100%)            |
   | `enable_quote_token/2`            | `enableQuoteToken`           | Convert a token to a quote token           |
   | `enable_aligned_quote_token/2`    | `enableAlignedQuoteToken`    | Enable aligned quote token status          |
+  | `disable_quote_token/2`           | `disableQuoteToken`          | Revoke quote-token status                  |
+  | `disable_aligned_quote_token/2`   | `disableAlignedQuoteToken`   | Revoke aligned quote-token status          |
+  | `set_token_annotation/3`          | `setTokenAnnotation`         | Set category/description/keywords metadata |
+  | `set_deployer_label/2`            | `setDeployerLabel`           | Set the deployer's display label           |
+
+  That is all 12 variants the official page documents.
+
+  ## Not implemented
+
+  - `requestEvmContract` — present in `@nktkas/hyperliquid` (and finalized by
+    `Hyperliquid.Api.Exchange.FinalizeEvmContract`) but absent from the HIP-1/HIP-2 page.
+  - `spotDeploy.outcome` — the HIP-4 outcome deployer moved out of `spotDeploy` into the
+    top-level `outcomeDeploy` action; see `Hyperliquid.Api.Exchange.OutcomeDeploy`.
+  - `scaleWei` — announced but not documented; shape unconfirmed.
+  - The `freeze` / `freezeUser` / `enableFreezePrivilege` / `revokeFreezePrivilege` /
+    `setFullName` family recorded by the RE mirror is undocumented; this SDK cannot
+    freeze or unfreeze a token holder.
 
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/deploying-hip-1-and-hip-2-assets
 
@@ -51,7 +68,7 @@ defmodule Hyperliquid.Api.Exchange.SpotDeploy do
       {:ok, _} = SpotDeploy.set_deployer_trading_fee_share(42, "50")
   """
 
-  alias Hyperliquid.{Config, Signer}
+  alias Hyperliquid.Config
   alias Hyperliquid.Api.Exchange.KeyUtils
   alias Hyperliquid.Transport.Http
 
@@ -227,7 +244,91 @@ defmodule Hyperliquid.Api.Exchange.SpotDeploy do
     send_action(action, opts)
   end
 
+  @doc """
+  Revoke quote-token status for a token.
+
+  ## Parameters
+    - `token`: Token integer ID
+    - `opts`: Optional keyword list (`:private_key`)
+  """
+  def disable_quote_token(token, opts \\ []) when is_integer(token) do
+    action = %{type: "spotDeploy", disableQuoteToken: %{token: token}}
+    send_action(action, opts)
+  end
+
+  @doc """
+  Revoke aligned quote-token status for a token.
+
+  ## Parameters
+    - `token`: Token integer ID
+    - `opts`: Optional keyword list (`:private_key`)
+  """
+  def disable_aligned_quote_token(token, opts \\ []) when is_integer(token) do
+    action = %{type: "spotDeploy", disableAlignedQuoteToken: %{token: token}}
+    send_action(action, opts)
+  end
+
+  @doc """
+  Set the searchable/display annotation for a deployed token.
+
+  ## Parameters
+    - `token`: Token integer ID
+    - `annotation`: Map with:
+      - `:category`     — Classification label string
+      - `:description`  — Detailed description string
+      - `:display_name` — Display name string, or `nil` to leave the L1 name in place
+      - `:keywords`     — List of keyword strings used as search hints
+    - `opts`: Optional keyword list (`:private_key`)
+
+  ## Examples
+
+      {:ok, _} = SpotDeploy.set_token_annotation(42, %{
+        category: "meme",
+        description: "A token",
+        display_name: nil,
+        keywords: ["dog", "meme"]
+      })
+  """
+  def set_token_annotation(token, annotation, opts \\ []) when is_integer(token) do
+    # IMPORTANT: OrderedObject pins the key order the L1 action hash depends on.
+    action =
+      Jason.OrderedObject.new([
+        {:type, "spotDeploy"},
+        {:setTokenAnnotation,
+         Jason.OrderedObject.new([
+           {:token, token},
+           {:annotation, build_annotation(annotation)}
+         ])}
+      ])
+
+    send_action(action, opts)
+  end
+
+  @doc """
+  Set the deployer's display label.
+
+  ## Parameters
+    - `label`: Label string
+    - `opts`: Optional keyword list (`:private_key`)
+  """
+  def set_deployer_label(label, opts \\ []) when is_binary(label) do
+    action = %{type: "spotDeploy", setDeployerLabel: %{label: label}}
+    send_action(action, opts)
+  end
+
   # ===================== Helpers =====================
+
+  @doc false
+  # Annotation key order: category, description, displayName, keywords.
+  # `displayName` is nullable and always emitted (it is not optional).
+  def build_annotation(annotation) do
+    Jason.OrderedObject.new([
+      {:category, Map.fetch!(annotation, :category)},
+      {:description, Map.fetch!(annotation, :description)},
+      {:displayName, Map.get(annotation, :display_name)},
+      {:keywords, Map.fetch!(annotation, :keywords)}
+    ])
+  end
 
   defp send_action(action, opts) do
     private_key = KeyUtils.resolve_private_key!(opts)
@@ -243,27 +344,18 @@ defmodule Hyperliquid.Api.Exchange.SpotDeploy do
   end
 
   defp sign_action(private_key, action_json, nonce, vault_address, expires_after) do
-    is_mainnet = Config.mainnet?()
-
-    case Signer.sign_exchange_action_ex(
-           private_key,
-           action_json,
-           nonce,
-           is_mainnet,
-           vault_address,
-           expires_after
-         ) do
-      %{"r" => r, "s" => s, "v" => v} ->
-        {:ok, %{r: r, s: s, v: v}}
-
-      error ->
-        {:error, {:signing_error, error}}
-    end
+    Hyperliquid.Api.Exchange.Action.sign_json(
+      private_key,
+      action_json,
+      nonce,
+      vault_address,
+      expires_after
+    )
   end
 
   defp drop_nils(map) do
     map |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new()
   end
 
-  defp generate_nonce, do: System.system_time(:millisecond)
+  defp generate_nonce, do: Hyperliquid.Utils.generate_nonce()
 end

@@ -5,17 +5,9 @@ defmodule Hyperliquid.Api.Exchange.ApproveBuilderFee do
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
-  alias Hyperliquid.Config
   alias Hyperliquid.Api.Exchange.{KeyUtils, UserSigned}
+  alias Hyperliquid.Config
   alias Hyperliquid.Transport.Http
-
-  @primary_type "HyperliquidTransaction:ApproveBuilderFee"
-  @types [
-    %{name: "hyperliquidChain", type: "string"},
-    %{name: "maxFeeRate", type: "string"},
-    %{name: "builder", type: "address"},
-    %{name: "nonce", type: "uint64"}
-  ]
 
   @doc """
   Approve a builder to charge fees.
@@ -46,30 +38,29 @@ defmodule Hyperliquid.Api.Exchange.ApproveBuilderFee do
     nonce = generate_nonce()
     is_mainnet = Config.mainnet?()
 
-    hyperliquid_chain = if(is_mainnet, do: "Mainnet", else: "Testnet")
+    action =
+      Jason.OrderedObject.new([
+        {:type, "approveBuilderFee"},
+        {:signatureChainId, UserSigned.signature_chain_id()},
+        {:hyperliquidChain, UserSigned.hyperliquid_chain(is_mainnet)},
+        {:maxFeeRate, max_fee_rate},
+        {:builder, builder},
+        {:nonce, nonce}
+      ])
 
-    message = %{
-      hyperliquidChain: hyperliquid_chain,
-      maxFeeRate: max_fee_rate,
-      builder: builder,
-      nonce: nonce
-    }
-
-    with {:ok, signature} <- UserSigned.sign(private_key, @primary_type, @types, message) do
-      action = %{
-        type: "approveBuilderFee",
-        hyperliquidChain: hyperliquid_chain,
-        signatureChainId: UserSigned.signature_chain_id(),
-        builder: builder,
-        maxFeeRate: max_fee_rate,
-        nonce: nonce
-      }
-
+    with {:ok, signature} <-
+           UserSigned.sign(
+             private_key,
+             "HyperliquidTransaction:ApproveBuilderFee",
+             [{"maxFeeRate", "string"}, {"builder", "address"}, {"nonce", "uint64"}],
+             [{"maxFeeRate", max_fee_rate}, {"builder", builder}, {"nonce", nonce}],
+             is_mainnet
+           ) do
       Http.user_signed_request(action, signature, nonce, opts)
     end
   end
 
   defp generate_nonce do
-    System.system_time(:millisecond)
+    Hyperliquid.Utils.generate_nonce()
   end
 end

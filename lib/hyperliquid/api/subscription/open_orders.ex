@@ -2,12 +2,16 @@ defmodule Hyperliquid.Api.Subscription.OpenOrders do
   @moduledoc """
   WebSocket subscription for open orders.
 
+  `dex` is optional and defaults to `""` (the main dex), matching
+  `@nktkas/hyperliquid` - the response always echoes the dex back.
+
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/websocket/subscriptions
   """
 
   use Hyperliquid.Api.SubscriptionEndpoint,
     request_type: "openOrders",
-    params: [:user, :dex],
+    params: [:user],
+    optional_params: [:dex],
     connection_type: :user_grouped,
     doc: "Open orders - shares connection per user",
     storage: [
@@ -45,7 +49,7 @@ defmodule Hyperliquid.Api.Subscription.OpenOrders do
     changeset =
       {%{}, types}
       |> cast(params, Map.keys(types))
-      |> validate_required([:user, :dex])
+      |> validate_required([:user])
       |> validate_format(:user, ~r/^0x[0-9a-fA-F]{40}$/)
 
     if changeset.valid? do
@@ -53,7 +57,7 @@ defmodule Hyperliquid.Api.Subscription.OpenOrders do
        %{
          type: "openOrders",
          user: get_change(changeset, :user),
-         dex: get_change(changeset, :dex)
+         dex: get_change(changeset, :dex) || ""
        }}
     else
       {:error, changeset}

@@ -47,6 +47,23 @@ Every endpoint exposes:
 | `DelegatorHistory` | `user` | Delegation history |
 | `DelegatorSummary` | `user` | Delegation summary |
 
+## HIP-4 / Outcome Markets
+
+| Module | Parameters | Description |
+|--------|-----------|-------------|
+| `OutcomeTemplates` | - | Outcome-market templates available to deployers |
+| `OutcomeMeta` | - | Metadata for all deployed outcome markets |
+| `SettledOutcome` | `outcome` | Settlement result for one outcome |
+| `OutcomeDeployerLimits` | `user` | Deployer limits (untyped passthrough - no upstream type) |
+
+`SettledOutcome.request/1` answers `{:ok, nil}` when the outcome is not settled
+yet (the API returns `null`), as does `VaultDetails.request/1` for a vault
+address that does not exist.
+
+Live updates for these markets come from the `outcomeMetaUpdates` subscription -
+see [Subscription API](subscriptions.md). The deployer and user actions live in
+[HIP-4 Outcome Markets](../guides/hip-4-outcome-markets.md).
+
 ## Usage
 
 ```elixir
@@ -62,4 +79,4 @@ mids = AllMids.request!()
 {:ok, mids} = AllMids.request(dex: "hyperliquid")
 ```
 
-For the complete list of 62 Info endpoints, see the [HexDocs](https://hexdocs.pm/hyperliquid).
+For the complete list of 79 Info endpoints, see the [HexDocs](https://hexdocs.pm/hyperliquid).

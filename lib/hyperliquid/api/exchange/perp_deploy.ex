@@ -18,6 +18,30 @@ defmodule Hyperliquid.Api.Exchange.PerpDeploy do
   | `set_margin_modes/2`        | `setMarginModes`        | Set margin mode per asset                      |
   | `set_fee_scale/3`           | `setFeeScale`           | Set fee scale (0.0–3.0) for a DEX             |
   | `set_growth_modes/2`        | `setGrowthModes`        | Enable/disable growth mode per asset           |
+  | `set_deployer_fees/2`       | `setDeployerFees`       | Merged fee scale + growth mode per asset       |
+  | `set_perp_annotation/2`     | `setPerpAnnotation`     | Set category/description/keywords metadata     |
+  | `disable_dex/2`             | `disableDex`            | Disable a perp DEX                             |
+
+  ## Fee-action name discrepancy (unresolved)
+
+  The official HIP-3 page lists a single **`setDeployerFees`** variant
+  (`[[coin, {scale, growthMode}]]`) and lists neither `setFeeScale` nor `setGrowthModes`.
+  `@nktkas/hyperliquid` v0.33.3 still emits `setFeeScale` and `setGrowthModes` and has no
+  `setDeployerFees`. Since the two references disagree, **all three functions are kept**:
+  `set_fee_scale/3` and `set_growth_modes/2` (nktkas shape) and `set_deployer_fees/2`
+  (docs shape). Nothing is deprecated until a live testnet deploy settles which the node
+  accepts.
+
+  The docs page also lists `setFundingInterestRates` and nktkas additionally has
+  `insertMarginTable`; neither is implemented here yet.
+
+  ## `registerAsset2` schema fields
+
+  `schema` accepts exactly `fullName`, `collateralToken`, `oracleUpdater` — verified
+  against nktkas v0.33.3. The extra `Hip3Schema` fields in the RE mirror (`feeRecipient`,
+  `assetToOiCap`, `subDeployers`, `deployerFeeScale`, `lastDeployerFeeScaleChangeTime`)
+  are server-derived and are not accepted on the wire. Note `marginMode` also accepts
+  `"normal"` upstream in addition to `"strictIsolated"` / `"noCross"`.
 
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/hip-3-deployer-actions
 
@@ -44,7 +68,7 @@ defmodule Hyperliquid.Api.Exchange.PerpDeploy do
       {:ok, _} = PerpDeploy.set_fee_scale("my_dex", "1.5")
   """
 
-  alias Hyperliquid.{Config, Signer}
+  alias Hyperliquid.Config
   alias Hyperliquid.Api.Exchange.KeyUtils
   alias Hyperliquid.Transport.Http
 
@@ -279,7 +303,91 @@ defmodule Hyperliquid.Api.Exchange.PerpDeploy do
     send_action(action, opts)
   end
 
+  @doc """
+  Set fee scale and growth mode per asset in one action (docs shape).
+
+  Emits `{"type":"perpDeploy","setDeployerFees":[[coin,{"scale":...,"growthMode":...}]]}`.
+
+  See the module doc's "Fee-action name discrepancy" note: the official page documents
+  this variant while nktkas still emits the older `setFeeScale` / `setGrowthModes` pair.
+
+  ## Parameters
+    - `fees`: List of `{coin, %{scale: scale_string, growth_mode: bool}}` tuples
+      (2-element lists also accepted), sorted by coin
+    - `opts`: Optional keyword list (`:private_key`)
+
+  ## Examples
+
+      {:ok, _} = PerpDeploy.set_deployer_fees([
+        {"MYTOKEN", %{scale: "1.5", growth_mode: true}}
+      ])
+  """
+  def set_deployer_fees(fees, opts \\ []) when is_list(fees) do
+    entries =
+      Enum.map(fees, fn
+        {coin, cfg} -> [coin, build_deployer_fee(cfg)]
+        [coin, cfg] -> [coin, build_deployer_fee(cfg)]
+      end)
+
+    action = %{type: "perpDeploy", setDeployerFees: entries}
+    send_action(action, opts)
+  end
+
+  @doc """
+  Set the searchable/display annotation for a perp asset.
+
+  ## Parameters
+    - `annotation`: Map with:
+      - `:coin`         — Asset symbol string
+      - `:category`     — Classification label (max 15 characters)
+      - `:description`  — Detailed description (max 400 characters)
+      - `:display_name` — Display name string, or `nil` to keep the L1 name
+      - `:keywords`     — List of keyword strings used as search hints
+    - `opts`: Optional keyword list (`:private_key`)
+
+  Note the annotation fields are siblings of `coin` (unlike the spot variant, which
+  nests them under an `annotation` object).
+  """
+  def set_perp_annotation(annotation, opts \\ []) do
+    # IMPORTANT: OrderedObject pins the key order the L1 action hash depends on.
+    action =
+      Jason.OrderedObject.new([
+        {:type, "perpDeploy"},
+        {:setPerpAnnotation,
+         Jason.OrderedObject.new([
+           {:coin, Map.fetch!(annotation, :coin)},
+           {:category, Map.fetch!(annotation, :category)},
+           {:description, Map.fetch!(annotation, :description)},
+           {:displayName, Map.get(annotation, :display_name)},
+           {:keywords, Map.fetch!(annotation, :keywords)}
+         ])}
+      ])
+
+    send_action(action, opts)
+  end
+
+  @doc """
+  Disable a perp DEX.
+
+  Note the payload is a bare string, not an object.
+
+  ## Parameters
+    - `dex`: DEX name string
+    - `opts`: Optional keyword list (`:private_key`)
+  """
+  def disable_dex(dex, opts \\ []) when is_binary(dex) do
+    action = %{type: "perpDeploy", disableDex: dex}
+    send_action(action, opts)
+  end
+
   # ===================== Helpers =====================
+
+  defp build_deployer_fee(cfg) do
+    Jason.OrderedObject.new([
+      {:scale, Map.fetch!(cfg, :scale)},
+      {:growthMode, Map.fetch!(cfg, :growth_mode)}
+    ])
+  end
 
   defp build_schema(nil), do: nil
 
@@ -305,23 +413,14 @@ defmodule Hyperliquid.Api.Exchange.PerpDeploy do
   end
 
   defp sign_action(private_key, action_json, nonce, vault_address, expires_after) do
-    is_mainnet = Config.mainnet?()
-
-    case Signer.sign_exchange_action_ex(
-           private_key,
-           action_json,
-           nonce,
-           is_mainnet,
-           vault_address,
-           expires_after
-         ) do
-      %{"r" => r, "s" => s, "v" => v} ->
-        {:ok, %{r: r, s: s, v: v}}
-
-      error ->
-        {:error, {:signing_error, error}}
-    end
+    Hyperliquid.Api.Exchange.Action.sign_json(
+      private_key,
+      action_json,
+      nonce,
+      vault_address,
+      expires_after
+    )
   end
 
-  defp generate_nonce, do: System.system_time(:millisecond)
+  defp generate_nonce, do: Hyperliquid.Utils.generate_nonce()
 end

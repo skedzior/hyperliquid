@@ -8,6 +8,8 @@ defmodule Hyperliquid.Application do
   alias Hyperliquid.Config
 
   @cache :hyperliquid
+  @meta_cache :hyperliquid_meta
+  @http_pool :hyperliquid_http
 
   @impl true
   def start(_type, _args) do
@@ -21,20 +23,36 @@ defmodule Hyperliquid.Application do
     core_children =
       [
         {Phoenix.PubSub, name: Hyperliquid.PubSub},
-        {Cachex,
-         [
-           name: @cache,
-           hooks: [
-             hook(
-               module: Cachex.Limit.Scheduled,
-               args: {
-                 Config.cache_max_entries(),
-                 [reclaim: Config.cache_reclaim_fraction()],
-                 [frequency: 10_000]
-               }
-             )
-           ]
-         ]}
+        # Dedicated hackney pool - the SDK must not share (and exhaust)
+        # hackney's global :default pool with the host application.
+        :hackney_pool.child_spec(@http_pool,
+          timeout: 60_000,
+          max_connections: Config.http_pool_size()
+        ),
+        # Exchange metadata lives in its own Cachex instance with NO size
+        # limit, so the WS firehose written into :hyperliquid can never evict
+        # :asset_map / :decimal_map / :all_mids.
+        Supervisor.child_spec({Cachex, name: @meta_cache}, id: @meta_cache),
+        # Both Cachex children carry an explicit `id:` — two `{Cachex, ...}`
+        # tuples default to the same child id (`Cachex`) and the supervisor
+        # refuses to start.
+        Supervisor.child_spec(
+          {Cachex,
+           [
+             name: @cache,
+             hooks: [
+               hook(
+                 module: Cachex.Limit.Scheduled,
+                 args: {
+                   Config.cache_max_entries(),
+                   [reclaim: Config.cache_reclaim_fraction()],
+                   [frequency: 10_000]
+                 }
+               )
+             ]
+           ]},
+          id: @cache
+        )
       ] ++
         if Config.autostart_cache?() do
           [Hyperliquid.Cache.Warmer]

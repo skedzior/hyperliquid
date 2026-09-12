@@ -156,32 +156,4 @@ defmodule Hyperliquid.Api.ActionEncoderTest do
       assert encodings |> Enum.uniq() |> length() == 1
     end
   end
-
-  describe "field_order/0" do
-    test "contains no duplicate keys" do
-      order = ActionEncoder.field_order()
-      assert length(order) == order |> Enum.uniq() |> length()
-    end
-
-    test "covers every key used by the reference vectors" do
-      known = MapSet.new(ActionEncoder.field_order())
-
-      used =
-        @vectors
-        |> Enum.flat_map(fn %{action: action} -> collect_keys(action) end)
-        |> MapSet.new()
-
-      assert MapSet.subset?(used, known),
-             "unranked keys: #{inspect(MapSet.difference(used, known) |> MapSet.to_list())}"
-    end
-  end
-
-  defp collect_keys(map) when is_map(map) and not is_struct(map) do
-    Enum.flat_map(map, fn {k, v} ->
-      [to_string(k) | collect_keys(v)]
-    end)
-  end
-
-  defp collect_keys(list) when is_list(list), do: Enum.flat_map(list, &collect_keys/1)
-  defp collect_keys(_), do: []
 end

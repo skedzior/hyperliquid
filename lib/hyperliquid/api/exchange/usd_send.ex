@@ -5,17 +5,9 @@ defmodule Hyperliquid.Api.Exchange.UsdSend do
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
-  alias Hyperliquid.Config
   alias Hyperliquid.Api.Exchange.{KeyUtils, UserSigned}
+  alias Hyperliquid.Config
   alias Hyperliquid.Transport.Http
-
-  @primary_type "HyperliquidTransaction:UsdSend"
-  @types [
-    %{name: "hyperliquidChain", type: "string"},
-    %{name: "destination", type: "string"},
-    %{name: "amount", type: "string"},
-    %{name: "time", type: "uint64"}
-  ]
 
   @doc """
   Send USD to another address.
@@ -48,34 +40,31 @@ defmodule Hyperliquid.Api.Exchange.UsdSend do
     time = generate_nonce()
     is_mainnet = Config.mainnet?()
 
-    hyperliquid_chain = if(is_mainnet, do: "Mainnet", else: "Testnet")
-
-    message = %{
-      hyperliquidChain: hyperliquid_chain,
-      destination: destination,
-      amount: amount,
-      time: time
-    }
+    # IMPORTANT: Use OrderedObject for correct field order in hash calculation
+    # Field order: type, signatureChainId, hyperliquidChain, destination, amount, time
+    action =
+      Jason.OrderedObject.new([
+        {:type, "usdSend"},
+        {:signatureChainId, UserSigned.signature_chain_id()},
+        {:hyperliquidChain, UserSigned.hyperliquid_chain(is_mainnet)},
+        {:destination, destination},
+        {:amount, amount},
+        {:time, time}
+      ])
 
     with {:ok, signature} <-
-           UserSigned.sign(private_key, @primary_type, @types, message) do
-      # Field order for the request body: type, signatureChainId,
-      # hyperliquidChain, destination, amount, time.
-      action =
-        Jason.OrderedObject.new([
-          {:type, "usdSend"},
-          {:signatureChainId, UserSigned.signature_chain_id()},
-          {:hyperliquidChain, hyperliquid_chain},
-          {:destination, destination},
-          {:amount, amount},
-          {:time, time}
-        ])
-
+           UserSigned.sign(
+             private_key,
+             "HyperliquidTransaction:UsdSend",
+             [{"destination", "string"}, {"amount", "string"}, {"time", "uint64"}],
+             [{"destination", destination}, {"amount", amount}, {"time", time}],
+             is_mainnet
+           ) do
       Http.user_signed_request(action, signature, time, opts)
     end
   end
 
   defp generate_nonce do
-    System.system_time(:millisecond)
+    Hyperliquid.Utils.generate_nonce()
   end
 end

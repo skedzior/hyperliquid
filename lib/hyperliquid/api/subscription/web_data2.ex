@@ -2,6 +2,23 @@ defmodule Hyperliquid.Api.Subscription.WebData2 do
   @moduledoc """
   WebSocket subscription for comprehensive user and market data.
 
+  > #### Deprecated {: .warning}
+  > The `webData2` **WebSocket channel was removed upstream** in
+  > `@nktkas/hyperliquid` v0.33.3 (`src/api/subscription/_methods/webData2.ts`,
+  > the `SubscriptionClient.webData2` method and its `mod.ts` export were all
+  > deleted). It was superseded by `webData3` plus the component subscriptions.
+  >
+  > This module is kept so existing subscribers keep compiling, but new code
+  > should use `Hyperliquid.Api.Subscription.WebData3` (with
+  > `Hyperliquid.Api.Subscription.ClearinghouseState`,
+  > `Hyperliquid.Api.Subscription.OpenOrders`,
+  > `Hyperliquid.Api.Subscription.SpotState` and
+  > `Hyperliquid.Api.Subscription.TwapStates` as needed). Expect the channel to
+  > stop producing events.
+  >
+  > Note the **info** `webData2` method still exists upstream, so
+  > `Hyperliquid.Api.Info.WebData2` is *not* deprecated - only this WS channel.
+
   Auto-generated from @nktkas/hyperliquid v0.26.0
   Source: src/api/subscription/webData2.ts
 
@@ -219,11 +236,16 @@ defmodule Hyperliquid.Api.Subscription.WebData2 do
     |> Enum.into(%{})
   end
 
+  # `String.to_existing_atom/1`, never `String.to_atom/1`: keys can originate in
+  # server frames and the atom table is never garbage collected.
   defp to_snake_case(key) when is_atom(key) do
-    key
-    |> Atom.to_string()
-    |> to_snake_case()
-    |> String.to_atom()
+    snake = key |> Atom.to_string() |> to_snake_case()
+
+    try do
+      String.to_existing_atom(snake)
+    rescue
+      ArgumentError -> snake
+    end
   end
 
   # Single-character keys have no word boundary to split on. Macro.underscore/1

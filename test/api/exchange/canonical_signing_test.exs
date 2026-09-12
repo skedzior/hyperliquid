@@ -97,18 +97,27 @@ defmodule Hyperliquid.Api.Exchange.CanonicalSigningTest do
 
   describe "no endpoint bypasses the canonical encoder" do
     test "no exchange module encodes an action with Jason directly" do
+      # Encoding an action with Jason is only safe when the module has first put
+      # it through a canonicalizer — `Hyperliquid.Api.Exchange.Action.ordered/1`
+      # (the per-action field-order schemas) or `ActionEncoder`, which delegates
+      # to it.
       offenders =
         "lib/hyperliquid/api/exchange/*.ex"
         |> Path.wildcard()
         |> Enum.filter(fn path ->
           source = File.read!(path)
 
-          String.contains?(source, "Jason.encode(action)") or
-            String.contains?(source, "Jason.encode!(action)")
+          encodes? =
+            String.contains?(source, "Jason.encode(action)") or
+              String.contains?(source, "Jason.encode!(action)")
+
+          canonicalizes? =
+            String.contains?(source, "Action.ordered(") or
+              String.contains?(source, "ActionEncoder")
+
+          encodes? and not canonicalizes?
         end)
         |> Enum.map(&Path.basename/1)
-        # order.ex canonicalizes its action before encoding it.
-        |> Enum.reject(&(&1 == "order.ex"))
 
       assert offenders == [],
              "these modules sign a non-canonical preimage: #{inspect(offenders)}"

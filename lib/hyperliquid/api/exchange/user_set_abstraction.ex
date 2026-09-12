@@ -4,12 +4,25 @@ defmodule Hyperliquid.Api.Exchange.UserSetAbstraction do
 
   Allows setting the abstraction mode to disabled, unifiedAccount, or portfolioMargin.
 
+  `userSetAbstraction` is a **user-signed** (EIP-712) action, signed under
+  `HyperliquidTransaction:UserSetAbstraction` with the fields
+  `hyperliquidChain`, `user` (address), `abstraction`, `nonce`, matching
+  `@nktkas/hyperliquid` (`UserSetAbstractionTypes`).
+
+  Until the 2026-09 API sync this module omitted the `user` field entirely, so both the
+  EIP-712 type hash and the encoded struct were wrong and the signature could
+  never have been recovered to the sending address.
+
   See: https://hyperliquid.gitbook.io/hyperliquid-docs/for-developers/api/exchange-endpoint
   """
 
+  alias Hyperliquid.Api.Exchange.{KeyUtils, UserSigned}
   alias Hyperliquid.Config
-  alias Hyperliquid.Api.Exchange.KeyUtils
   alias Hyperliquid.Transport.Http
+  alias Hyperliquid.Utils
+
+  @primary_type "HyperliquidTransaction:UserSetAbstraction"
+  @fields [{"user", "address"}, {"abstraction", "string"}, {"nonce", "uint64"}]
 
   @valid_modes ["disabled", "unifiedAccount", "portfolioMargin"]
 
@@ -17,6 +30,7 @@ defmodule Hyperliquid.Api.Exchange.UserSetAbstraction do
   Set account abstraction mode.
 
   ## Parameters
+    - `user`: Address the setting applies to (`"0x..."`)
     - `abstraction`: Mode string - "disabled", "unifiedAccount", or "portfolioMargin"
     - `opts`: Optional parameters
 
@@ -29,58 +43,48 @@ defmodule Hyperliquid.Api.Exchange.UserSetAbstraction do
 
   ## Examples
 
-      {:ok, result} = UserSetAbstraction.request("unifiedAccount")
+      {:ok, result} = UserSetAbstraction.request("0xabc...", "unifiedAccount")
   """
-  def request(abstraction, opts \\ []) when abstraction in @valid_modes do
+  def request(user, abstraction, opts \\ [])
+      when is_binary(user) and abstraction in @valid_modes do
     private_key = KeyUtils.resolve_private_key!(opts)
-    nonce = generate_nonce()
+    user = String.downcase(user)
+    nonce = Utils.generate_nonce()
     is_mainnet = Config.mainnet?()
 
-    domain = %{
-      name: "HyperliquidSignTransaction",
-      version: "1",
-      chainId: Hyperliquid.Config.signature_chain_id(),
-      verifyingContract: "0x0000000000000000000000000000000000000000"
-    }
-
-    types = %{
-      "HyperliquidTransaction:UserSetAbstraction" => [
-        %{name: "hyperliquidChain", type: "string"},
-        %{name: "abstraction", type: "string"},
-        %{name: "nonce", type: "uint64"}
-      ]
-    }
-
-    message = %{
-      hyperliquidChain: if(is_mainnet, do: "Mainnet", else: "Testnet"),
-      abstraction: abstraction,
-      nonce: nonce
-    }
-
-    with {:ok, domain_json} <- Jason.encode(domain),
-         {:ok, types_json} <- Jason.encode(types),
-         {:ok, message_json} <- Jason.encode(message),
-         {:ok, signature} <-
-           KeyUtils.sign_typed_data(
-             private_key,
-             domain_json,
-             types_json,
-             message_json,
-             "HyperliquidTransaction:UserSetAbstraction"
-           ) do
-      action = %{
-        type: "userSetAbstraction",
-        hyperliquidChain: if(is_mainnet, do: "Mainnet", else: "Testnet"),
-        signatureChainId: Hyperliquid.Config.signature_chain_id_hex(),
-        abstraction: abstraction,
-        nonce: nonce
-      }
-
-      Http.user_signed_request(action, signature, nonce, opts)
+    with {:ok, signature} <- sign(private_key, user, abstraction, nonce, is_mainnet) do
+      Http.user_signed_request(
+        build_action(user, abstraction, nonce, is_mainnet),
+        signature,
+        nonce,
+        opts
+      )
     end
   end
 
-  defp generate_nonce do
-    System.system_time(:millisecond)
+  @doc """
+  The wire action, in the canonical field order
+  (`type`, `signatureChainId`, `hyperliquidChain`, `user`, `abstraction`, `nonce`).
+  """
+  def build_action(user, abstraction, nonce, is_mainnet \\ nil) do
+    Jason.OrderedObject.new([
+      {:type, "userSetAbstraction"},
+      {:signatureChainId, UserSigned.signature_chain_id()},
+      {:hyperliquidChain, UserSigned.hyperliquid_chain(is_mainnet)},
+      {:user, user},
+      {:abstraction, abstraction},
+      {:nonce, nonce}
+    ])
+  end
+
+  @doc false
+  def sign(private_key, user, abstraction, nonce, is_mainnet \\ nil) do
+    UserSigned.sign(
+      private_key,
+      @primary_type,
+      @fields,
+      [{"user", user}, {"abstraction", abstraction}, {"nonce", nonce}],
+      is_mainnet
+    )
   end
 end

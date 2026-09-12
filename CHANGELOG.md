@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0 (2026-09-12)
 
 Relative to **0.4.1**. Endpoint coverage is re-synced to `@nktkas/hyperliquid`
 v0.33.3 plus the official HIP-4 docs (**79 Info endpoints, 60 Exchange actions,

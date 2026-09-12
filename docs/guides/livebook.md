@@ -4,7 +4,7 @@
 
 ```elixir
 Mix.install([
-  {:hyperliquid, "~> 0.2.0"}
+  {:hyperliquid, "~> 0.5"}
 ],
 config: [
   hyperliquid: [
@@ -17,7 +17,7 @@ config: [
 
 ```elixir
 Mix.install([
-  {:hyperliquid, "~> 0.2.0"}
+  {:hyperliquid, "~> 0.5"}
 ],
 config: [
   hyperliquid: [

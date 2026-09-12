@@ -13,7 +13,7 @@ Add `hyperliquid` to your dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:hyperliquid, "~> 0.2.0"}
+    {:hyperliquid, "~> 0.5"}
   ]
 end
 ```
@@ -31,7 +31,7 @@ To enable Postgres persistence, add the database dependencies:
 ```elixir
 def deps do
   [
-    {:hyperliquid, "~> 0.2.0"},
+    {:hyperliquid, "~> 0.5"},
     {:phoenix_ecto, "~> 4.5"},
     {:ecto_sql, "~> 3.10"},
     {:postgrex, ">= 0.0.0"}

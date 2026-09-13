@@ -38,6 +38,7 @@ defmodule Hyperliquid.MixProject do
         priv/repo/migrations
         native/signer/src
         native/signer/Cargo.toml
+        native/signer/.cargo
         native/signer/Cargo.lock
         checksum-Elixir.Hyperliquid.Signer.exs
         mix.exs

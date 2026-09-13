@@ -1,0 +1,20 @@
+# musl targets default to `crt-static`, which statically links libc into the
+# artifact. A staticly-linked-libc target cannot produce a `cdylib`, and a
+# Rustler NIF is a cdylib, so the build dies with:
+#
+#   error: cannot produce cdylib for `signer_nif` as the target
+#          `x86_64-unknown-linux-musl` does not support these crate types
+#
+# Turning crt-static off makes the musl builds emit a normal shared object that
+# links against the musl libc present on the host (Alpine and friends), which
+# is what the BEAM needs in order to `erlang:load_nif/2` it.
+#
+# This lives in the crate's own .cargo/ rather than in the workflow so that
+# `cross` picks it up inside its container, and so a consumer building from
+# source on musl (HYPERLIQUID_BUILD_NIF=1) gets the same treatment.
+
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=-crt-static"]
+
+[target.aarch64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=-crt-static"]

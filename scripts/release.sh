@@ -248,10 +248,16 @@ ok "tag $TAG -> $(git rev-parse --short "$TAG^{commit}")"
 
 step 3 "Build precompiled NIFs (GitHub Actions)"
 
+# Match on the tag's COMMIT as well as its name. A re-run after
+# `gh release delete --cleanup-tag` recreates the tag on a new commit, and the
+# runs from the deleted attempts are still listed under the same headBranch —
+# selecting by name alone would latch onto a stale, already-failed run forever.
 nif_run_id() {
+  local sha
+  sha="$(git rev-parse "$TAG^{commit}")"
   gh run list --workflow nif_build.yml --limit 30 \
-    --json databaseId,headBranch,status,conclusion \
-    --jq "[.[] | select(.headBranch == \"$TAG\")] | first | .databaseId" 2>/dev/null
+    --json databaseId,headBranch,headSha,status,conclusion \
+    --jq "[.[] | select(.headBranch == \"$TAG\" and .headSha == \"$sha\")] | first | .databaseId" 2>/dev/null
 }
 
 nif_run_field() {
